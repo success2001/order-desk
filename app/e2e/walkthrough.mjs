@@ -5,7 +5,7 @@
 //
 // Creates a temporary vendor in Supabase (deleted at the end). Screenshots: e2e/.screenshots/<mode>/.
 
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   APP_DIR,
@@ -378,6 +378,46 @@ try {
   check('walkthrough completed', false, String(err).split('\n')[0])
   await shot('99-failure').catch(() => {})
 } finally {
+  // On any failure, record server and on-device state before clean-up erases it.
+  if (results.some((r) => !r.ok)) {
+    try {
+      const server = {
+        orders: await sql`select id, customer_name, items, fulfilment_status, updated_at, server_updated_at, deleted_at
+          from public.orders where vendor_id = ${vendor.account.id} order by server_updated_at`,
+        payments: await sql`select id, order_id, amount_kobo, deleted_at, server_updated_at
+          from public.payments where vendor_id = ${vendor.account.id} order by server_updated_at`,
+        deletedRecords: await sql`select table_name, record_id, deleted_at
+          from private.deleted_records where vendor_id = ${vendor.account.id}`,
+      }
+      const device = await page
+        .evaluate(async (name) => {
+          const open = indexedDB.open(name)
+          const idb = await new Promise((resolve, reject) => {
+            open.onsuccess = () => resolve(open.result)
+            open.onerror = () => reject(open.error)
+          })
+          const all = (store) =>
+            new Promise((resolve) => {
+              const req = idb.transaction(store).objectStore(store).getAll()
+              req.onsuccess = () => resolve(req.result)
+            })
+          const pick = (rows, keys) => rows.map((r) => Object.fromEntries(keys.map((k) => [k, r[k]])))
+          const result = {
+            orders: pick(await all('orders'), ['id', 'customer_name', 'items', 'fulfilment_status', 'updated_at', 'deleted_at', 'synced', 'sync_error']),
+            payments: pick(await all('payments'), ['id', 'order_id', 'amount_kobo', 'deleted_at', 'synced', 'sync_error']),
+            meta: await all('meta'),
+          }
+          idb.close()
+          return result
+        }, `orderdesk-${vendor.account.id}`)
+        .catch((e) => ({ error: String(e) }))
+      const file = join(shotsDir, 'diagnostics.json')
+      writeFileSync(file, JSON.stringify({ server, device }, null, 2))
+      console.log(`Diagnostics written to ${file}`)
+    } catch (e) {
+      console.log('Could not collect diagnostics:', String(e))
+    }
+  }
   check('no console errors', errors.length === 0, errors.slice(0, 3).join(' | '))
   await browser.close()
   await site.stop()

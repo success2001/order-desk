@@ -60,10 +60,10 @@ begin
   -- 6. Newer write is applied and server_updated_at moves forward.
   prev_server_ts := rec.server_updated_at;
   update public.orders
-     set amount_paid_kobo = 1000000, updated_at = t0 + interval '1 minute'
+     set amount_due_kobo = 3000000, updated_at = t0 + interval '1 minute'
    where id = order_a;
   select * into rec from public.orders where id = order_a;
-  if rec.amount_paid_kobo <> 1000000 then raise exception 'FAIL 6a: newer write was not applied'; end if;
+  if rec.amount_due_kobo <> 3000000 then raise exception 'FAIL 6a: newer write was not applied'; end if;
   if rec.server_updated_at <= prev_server_ts then raise exception 'FAIL 6b: server_updated_at did not advance'; end if;
 
   -- 7. A far-future device clock is clamped to server time.
