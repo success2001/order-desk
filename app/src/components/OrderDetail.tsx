@@ -1,21 +1,15 @@
-import { useLiveQuery } from 'dexie-react-hooks'
-import { useState, type FormEvent } from 'react'
+import { useState } from 'react'
 import { goBack, navigate } from '../app/router'
 import { CHANNEL_LABELS, formatOrderDate, nextFulfilmentStep } from '../orders/labels'
-import { formatKobo, parseNairaToKobo } from '../orders/money'
-import { balanceKobo, paymentStatus } from '../orders/payment'
 import { OrderNotFoundError, OrderValidationError, deleteOrder, setFulfilmentStatus } from '../orders/repository'
 import { useDb } from '../orders/useDb'
 import type { Order } from '../orders/types'
-import { PaymentValidationError, markFullyPaid, paidTotal, recordPayment } from '../payments/repository'
-import { FulfilmentBadge, PaymentBadge } from './Badges'
+import { FulfilmentBadge } from './Badges'
+import { PaymentsCard } from './PaymentsCard'
 
 export function OrderDetail({ order }: { order: Order }) {
   const db = useDb()
   const [error, setError] = useState<string | null>(null)
-  const [paymentInput, setPaymentInput] = useState<string | null>(null)
-  // Total received: the sum of this order's payments that aren't voided.
-  const paid = useLiveQuery(() => paidTotal(db, order.id), [db, order.id], 0)
 
   /** Runs an action and shows a readable message if it fails. Returns true on success. */
   async function run(action: () => Promise<unknown>): Promise<boolean> {
@@ -24,26 +18,13 @@ export function OrderDetail({ order }: { order: Order }) {
       await action()
       return true
     } catch (err) {
-      if (err instanceof OrderValidationError || err instanceof PaymentValidationError) {
-        setError(Object.values(err.errors)[0] ?? 'Check the details and try again.')
-      }
+      if (err instanceof OrderValidationError) setError(Object.values(err.errors)[0] ?? 'Check the details and try again.')
       else if (err instanceof OrderNotFoundError) setError('This order no longer exists.')
       else setError('Something went wrong. Please try again.')
       return false
     }
   }
 
-  async function handlePartPayment(event: FormEvent) {
-    event.preventDefault()
-    const kobo = parseNairaToKobo(paymentInput ?? '')
-    if (!kobo) {
-      setError('Enter the amount received, e.g. 10,000')
-      return
-    }
-    if (await run(() => recordPayment(db, order.id, kobo))) setPaymentInput(null)
-  }
-
-  const balance = balanceKobo(order.amount_due_kobo, paid)
   const next = nextFulfilmentStep(order.fulfilment_status)
   const isOpen = order.fulfilment_status === 'pending' || order.fulfilment_status === 'dispatched'
 
@@ -81,49 +62,7 @@ export function OrderDetail({ order }: { order: Order }) {
         )}
       </section>
 
-      <section className="card">
-        <div className="card__title">
-          <h3>Payment</h3>
-          <PaymentBadge order={order} paid={paid} />
-        </div>
-        <dl className="amounts">
-          <dt>Amount</dt>
-          <dd>{formatKobo(order.amount_due_kobo)}</dd>
-          <dt>Received</dt>
-          <dd>{formatKobo(paid)}</dd>
-          <dt>{balance < 0 ? 'Overpaid' : 'Still owed'}</dt>
-          <dd className={balance > 0 ? 'owed' : undefined}>{formatKobo(Math.abs(balance))}</dd>
-        </dl>
-
-        {paymentStatus(order.amount_due_kobo, paid) !== 'paid' &&
-          (paymentInput === null ? (
-            <div className="actions">
-              <button type="button" className="button button--primary" onClick={() => run(() => markFullyPaid(db, order.id))}>
-                Mark fully paid
-              </button>
-              <button type="button" className="button" onClick={() => setPaymentInput('')}>
-                Record part payment
-              </button>
-            </div>
-          ) : (
-            <form className="inline-form" onSubmit={handlePartPayment}>
-              <input
-                value={paymentInput}
-                onChange={(e) => setPaymentInput(e.target.value)}
-                inputMode="decimal"
-                placeholder="Amount received (₦)"
-                aria-label="Amount received in naira"
-                autoFocus
-              />
-              <button type="submit" className="button button--primary">
-                Add
-              </button>
-              <button type="button" className="button button--ghost" onClick={() => setPaymentInput(null)}>
-                Cancel
-              </button>
-            </form>
-          ))}
-      </section>
+      <PaymentsCard order={order} />
 
       <section className="card">
         <div className="card__title">

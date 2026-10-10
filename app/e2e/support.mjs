@@ -175,6 +175,9 @@ export async function openPhone({ shotsDir, isSiteUp = () => true }) {
     results,
     check: (name, ok, detail = '') => results.push({ name, ok: Boolean(ok), detail }),
     visible: (locator, timeout = 3000) => locator.first().waitFor({ timeout }).then(() => true, () => false),
+    /** True once nothing matches (the screen may update a moment after an action). */
+    gone: (locator, timeout = 5000) =>
+      locator.first().waitFor({ state: 'detached', timeout }).then(() => true, () => false),
     shot: (name) => (shotsDir ? page.screenshot({ path: join(shotsDir, `${name}.png`), fullPage: true }) : Promise.resolve()),
   }
 }

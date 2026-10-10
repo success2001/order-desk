@@ -32,7 +32,10 @@ const vendor = await createTempVendor(sql, config)
 const site = prod ? await startProdServer(4174) : await startDevServer(5174)
 const shotsDir = join(APP_DIR, 'e2e', '.screenshots', mode)
 mkdirSync(shotsDir, { recursive: true })
-const { browser, context, page, errors, results, check, visible, shot } = await openPhone({ shotsDir, isSiteUp: site.isUp })
+const { browser, context, page, errors, results, check, visible, gone, shot } = await openPhone({
+  shotsDir,
+  isSiteUp: site.isUp,
+})
 
 /** As if this vendor signed in earlier on this phone. A Supabase session is optional. */
 const rememberVendor = (account, session = null) =>
@@ -134,11 +137,20 @@ try {
 
   // Part payment.
   await page.getByText('Ada Okafor').click()
-  await page.getByRole('button', { name: 'Record part payment' }).click()
+  await page.getByRole('button', { name: 'Record payment' }).click()
+  check('date received defaults to today', (await page.getByLabel('Date received').inputValue()) === (await page.evaluate(() => {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  })))
   await page.getByLabel('Amount received in naira').fill('10,000')
-  await page.getByRole('button', { name: 'Add' }).click()
+  await page.getByLabel('Method (optional)').selectOption('transfer')
+  await page.getByRole('button', { name: 'Save payment' }).click()
   await page.getByText('Part-paid').waitFor()
   check('part payment leaves ₦15,000 owed', (await page.locator('dd.owed').textContent()) === '₦15,000')
+  check(
+    'payment shown in history with its method',
+    await visible(page.getByRole('list', { name: 'Payments received' }).getByText(/Today, .* · Bank transfer/)),
+  )
   check(
     'part payment synced as a payment record',
     await waitFor(async () => {
@@ -158,6 +170,45 @@ try {
   check('not sent -> dispatched -> delivered, fully paid', await visible(page.getByRole('button', { name: 'Reopen' })))
   check(
     '"Mark fully paid" synced as a second payment for the balance',
+    await waitFor(async () => {
+      const paid = await vendor.serverPaidTotal('Ada Okafor')
+      return paid.total === 2_500_000 && paid.payments === 2
+    }),
+  )
+
+  // A backdated payment (3 days ago), then voided.
+  const threeDaysAgo = await page.evaluate(() => {
+    const d = new Date()
+    d.setDate(d.getDate() - 3)
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  })
+  await page.getByRole('button', { name: 'Record payment' }).click()
+  await page.getByLabel('Amount received in naira').fill('2,000')
+  await page.getByLabel('Date received').fill(threeDaysAgo)
+  await page.getByLabel('Method (optional)').selectOption('cash')
+  await page.getByRole('button', { name: 'Save payment' }).click()
+  check('overpayment shown after an extra payment', await visible(page.getByText('Overpaid')))
+  const backdated = await waitFor(async () => {
+    const [row] = await sql`select p.paid_at, p.method from public.payments p join public.orders o on o.id = p.order_id
+      where o.vendor_id = ${vendor.account.id} and o.customer_name = 'Ada Okafor' and p.amount_kobo = 200000 and p.deleted_at is null`
+    return row ?? null
+  })
+  check(
+    'backdated payment synced with its date and method',
+    backdated &&
+      backdated.method === 'cash' &&
+      (await page.evaluate((iso) => {
+        const d = new Date(iso)
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+      }, backdated.paid_at.toISOString())) === threeDaysAgo,
+    backdated ? backdated.paid_at.toISOString() : 'not found',
+  )
+  await shot('04b-payment-history')
+  await page.getByRole('button', { name: 'Void ₦2,000 payment' }).click()
+  check('voided payment leaves the history', await gone(page.getByRole('button', { name: 'Void ₦2,000 payment' })))
+  check('no longer overpaid after voiding', await gone(page.getByText('Overpaid')))
+  check(
+    'void synced: payment kept as voided, total back to ₦25,000',
     await waitFor(async () => {
       const paid = await vendor.serverPaidTotal('Ada Okafor')
       return paid.total === 2_500_000 && paid.payments === 2
