@@ -64,6 +64,18 @@ export class SyncRejectedError extends Error {
   }
 }
 
+/**
+ * The server can't accept the row *yet*, e.g. a payment whose order hasn't
+ * reached the server (foreign key). Left waiting and retried on later syncs,
+ * never set aside.
+ */
+export class SyncDeferredError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'SyncDeferredError'
+  }
+}
+
 /** Normalises a server timestamp to the app's ISO format (drops microseconds). */
 export function toIso(timestamp: string): string {
   return new Date(timestamp).toISOString()

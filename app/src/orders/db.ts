@@ -1,4 +1,5 @@
 import Dexie, { type EntityTable } from 'dexie'
+import type { Payment } from '../payments/types'
 import type { Order } from './types'
 
 /** Small key/value store for sync bookkeeping (e.g. last fetch time), used from T7. */
@@ -9,6 +10,7 @@ export interface MetaEntry {
 
 export type OrderDb = Dexie & {
   orders: EntityTable<Order, 'id'>
+  payments: EntityTable<Payment, 'id'>
   meta: EntityTable<MetaEntry, 'key'>
 }
 
@@ -50,6 +52,33 @@ export function openOrderDb(name: string): OrderDb {
           }
         }),
     )
+  // v3: payment history. "Paid" is now the sum of an order's payments, so any
+  // amount stored on an order before v3 becomes one payment.
+  db.version(3)
+    .stores({ payments: 'id, order_id, paid_at, updated_at, synced' })
+    .upgrade(async (tx) => {
+      const legacy = (await tx.table('orders').toArray()) as (Order & { amount_paid_kobo?: number })[]
+      const payments: Payment[] = legacy
+        .filter((o) => !o.deleted_at && (o.amount_paid_kobo ?? 0) > 0)
+        .map((o) => ({
+          // The order's id: unique within payments, and the same on every device
+          // that upgrades this order, so syncing can't create duplicates.
+          id: o.id,
+          order_id: o.id,
+          amount_kobo: o.amount_paid_kobo!,
+          // Best guess: received at the order's last change, recorded then too
+          // (keeps it within the server's 90-day backdating rule).
+          paid_at: o.updated_at,
+          method: null,
+          note: null,
+          created_at: o.updated_at,
+          updated_at: o.updated_at,
+          deleted_at: null,
+          synced: 0,
+          sync_error: null,
+        }))
+      await tx.table('payments').bulkPut(payments)
+    })
   return db
 }
 

@@ -6,7 +6,8 @@ import type { NewOrderInput } from '../orders/types'
 import { FakeRemote } from './fakeRemote'
 import { SyncNetworkError, SyncRejectedError } from './remote'
 import { PULL_PAGE, cursorKey, pullChanges, pushChanges, syncOnce } from './sync'
-import { ordersTable, toRemoteOrder as toRemote } from './tables'
+import { ordersTable, paymentsTable, toRemoteOrder as toRemote, type RemotePaymentRow } from './tables'
+import { paidTotal, recordPayment, voidPayment } from '../payments/repository'
 
 const T0 = new Date('2026-10-10T09:00:00.000Z')
 const at = (ms: number) => new Date(T0.getTime() + ms)
@@ -327,5 +328,80 @@ describe('several tables', () => {
 
     expect((await phone.meta.get(cursorKey(ordersTable(remote))))?.key).toBe('pullCursor:orders')
     expect(await phone.meta.get('pullCursor')).toBeUndefined()
+  })
+})
+describe('payments', () => {
+  let payRemote: FakeRemote<RemotePaymentRow>
+  const both = () => [ordersTable(remote), paymentsTable(payRemote)]
+  const syncAll = (db: OrderDb) => syncOnce(db, both())
+
+  beforeEach(() => {
+    // Like the server's foreign key: a payment needs its order to be on the server.
+    payRemote = new FakeRemote<RemotePaymentRow>(['created_at', 'order_id'], { field: 'order_id', rows: remote.rows })
+  })
+
+  it('syncs an order and its payments to another device', async () => {
+    const order = await createOrder(phone, input, T0)
+    await recordPayment(phone, order.id, 1_000_000, { method: 'transfer' }, at(1_000))
+
+    expect(await syncAll(phone)).toMatchObject({ pushed: 2, rejected: 0, deferred: 0 })
+    const laptop = device()
+    await syncAll(laptop)
+
+    expect(await paidTotal(laptop, order.id)).toBe(1_000_000)
+    expect((await laptop.payments.toArray())[0]).toMatchObject({ method: 'transfer', synced: 1 })
+  })
+
+  it('keeps payments recorded on two devices at the same time (both count)', async () => {
+    const laptop = device()
+    const order = await createOrder(phone, input, T0)
+    await syncAll(phone)
+    await syncAll(laptop)
+
+    // Both record a payment before either syncs.
+    await recordPayment(phone, order.id, 1_000_000, {}, at(1_000))
+    await recordPayment(laptop, order.id, 500_000, {}, at(1_000))
+    await syncAll(phone)
+    await syncAll(laptop)
+    await syncAll(phone)
+
+    expect(payRemote.rows.size).toBe(2)
+    expect(await paidTotal(phone, order.id)).toBe(1_500_000)
+    expect(await paidTotal(laptop, order.id)).toBe(1_500_000)
+  })
+
+  it('syncs a voided payment so it stops counting everywhere', async () => {
+    const laptop = device()
+    const order = await createOrder(phone, input, T0)
+    const payment = await recordPayment(phone, order.id, 1_000_000, {}, at(1_000))
+    await syncAll(phone)
+    await syncAll(laptop)
+
+    await voidPayment(laptop, payment.id, at(2_000))
+    await syncAll(laptop)
+    await syncAll(phone)
+
+    expect(await paidTotal(phone, order.id)).toBe(0)
+    expect(payRemote.rows.get(payment.id)?.deleted_at).toBe(at(2_000).toISOString())
+  })
+
+  it('a payment whose order is not on the server waits instead of being set aside', async () => {
+    const order = await createOrder(phone, input, T0)
+    const payment = await recordPayment(phone, order.id, 1_000_000, {}, at(1_000))
+    remote.rejectIds.add(order.id) // the order itself is refused, so it never reaches the server
+
+    const result = await syncAll(phone)
+
+    expect(result).toMatchObject({ rejected: 1, deferred: 1 })
+    expect((await phone.orders.get(order.id))?.synced).toBe(2)
+    expect(await phone.payments.get(payment.id)).toMatchObject({ synced: 0, sync_error: null })
+    expect(payRemote.pushCalls).toBe(2) // one batch + one single retry: no looping
+
+    // Once the order is fixed and synced, the waiting payment goes through.
+    remote.rejectIds.delete(order.id)
+    await updateOrder(phone, order.id, { items: 'fixed' }, at(2_000))
+    expect(await syncAll(phone)).toMatchObject({ pushed: 2, rejected: 0, deferred: 0 })
+    expect(payRemote.rows.has(payment.id)).toBe(true)
+    expect((await phone.payments.get(payment.id))?.synced).toBe(1)
   })
 })

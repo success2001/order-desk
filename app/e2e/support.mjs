@@ -61,6 +61,13 @@ export async function createTempVendor(sql, { url, key }) {
     /** The vendor's order on the server, by customer name. */
     serverOrder: async (customerName) =>
       (await sql`select * from public.orders where vendor_id = ${id} and customer_name = ${customerName}`)[0],
+    /** Total of the order's payments on the server that aren't voided, in kobo. */
+    serverPaidTotal: async (customerName) => {
+      const [row] = await sql`select coalesce(sum(p.amount_kobo), 0)::bigint as total, count(p.id)::int as payments
+        from public.orders o left join public.payments p on p.order_id = o.id and p.deleted_at is null
+        where o.vendor_id = ${id} and o.customer_name = ${customerName}`
+      return { total: Number(row?.total ?? 0), payments: row?.payments ?? 0 }
+    },
     async remove() {
       await sql`delete from auth.users where id = ${id}` // cascades to orders
       // The cascade records each deleted order; remove this test vendor's records too.

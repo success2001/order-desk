@@ -9,9 +9,7 @@ import {
   deleteOrder,
   getOrder,
   listOrders,
-  markFullyPaid,
   nextUpdatedAt,
-  recordPayment,
   setFulfilmentStatus,
   updateOrder,
 } from './repository'
@@ -45,7 +43,6 @@ describe('createOrder', () => {
       customer_name: 'Ada',
       customer_phone: null,
       channel: 'whatsapp',
-      amount_paid_kobo: 0,
       fulfilment_status: 'pending',
       notes: null,
       created_at: T0.toISOString(),
@@ -113,28 +110,6 @@ describe('updating orders', () => {
     expect(await db.orders.get(order.id)).toEqual(order)
   })
 
-  it('records part payments cumulatively', async () => {
-    const order = await createOrder(db, input, T0)
-    await recordPayment(db, order.id, 1_000_000, later(1))
-    const updated = await recordPayment(db, order.id, 500_000, later(2))
-    expect(updated.amount_paid_kobo).toBe(1_500_000)
-  })
-
-  it('rejects zero, negative or fractional payments', async () => {
-    const order = await createOrder(db, input, T0)
-    for (const amount of [0, -100, 10.5]) {
-      await expect(recordPayment(db, order.id, amount, later(1))).rejects.toBeInstanceOf(OrderValidationError)
-    }
-  })
-
-  it('marks fully paid without reducing an overpayment', async () => {
-    const order = await createOrder(db, input, T0)
-    expect((await markFullyPaid(db, order.id, later(1))).amount_paid_kobo).toBe(2_500_000)
-
-    await recordPayment(db, order.id, 100_000, later(2)) // now overpaid
-    expect((await markFullyPaid(db, order.id, later(3))).amount_paid_kobo).toBe(2_600_000)
-  })
-
   it('sets fulfilment status', async () => {
     const order = await createOrder(db, input, T0)
     expect((await setFulfilmentStatus(db, order.id, 'dispatched', later(1))).fulfilment_status).toBe('dispatched')
@@ -145,7 +120,7 @@ describe('updating orders', () => {
 
     const order = await createOrder(db, input, T0)
     await deleteOrder(db, order.id, later(1))
-    await expect(markFullyPaid(db, order.id, later(2))).rejects.toBeInstanceOf(OrderNotFoundError)
+    await expect(setFulfilmentStatus(db, order.id, 'delivered', later(2))).rejects.toBeInstanceOf(OrderNotFoundError)
   })
 })
 
@@ -231,7 +206,7 @@ describe('delivered_at', () => {
     const order = await createOrder(db, input, T0)
     await setFulfilmentStatus(db, order.id, 'delivered', later(1_000))
     await updateOrder(db, order.id, { items: 'edited after delivery' }, later(2_000))
-    await recordPayment(db, order.id, 100_000, later(3_000))
+    await updateOrder(db, order.id, { notes: 'Leave with the gateman' }, later(3_000))
     const again = await setFulfilmentStatus(db, order.id, 'delivered', later(4_000))
     expect(again.delivered_at).toBe(later(1_000).toISOString())
   })
@@ -282,6 +257,36 @@ describe('database upgrade to version 2', () => {
     expect(await v2.orders.where('delivered_at').above('').count()).toBe(1) // new index works
     expect((await v2.orders.get('delivered'))?.synced).toBe(1) // upgrade doesn't force a re-send
     await v2.delete()
+  })
+})
+
+describe('database upgrade to version 3', () => {
+  it('turns each order’s stored paid amount into one payment with the order’s id', async () => {
+    const name = `upgrade3-${crypto.randomUUID()}`
+    const v2 = new Dexie(name)
+    v2.version(2).stores({ orders: 'id, created_at, updated_at, synced, fulfilment_status, delivered_at', meta: 'key' })
+    const base = { customer_phone: null, channel: 'whatsapp', items: 'x', amount_due_kobo: 2_500_000, fulfilment_status: 'pending', delivered_at: null, notes: null, created_at: T0.toISOString(), synced: 1 }
+    await v2.table('orders').bulkAdd([
+      { ...base, id: 'part-paid', customer_name: 'A', amount_paid_kobo: 1_000_000, updated_at: later(5_000).toISOString(), deleted_at: null },
+      { ...base, id: 'unpaid', customer_name: 'B', amount_paid_kobo: 0, updated_at: later(6_000).toISOString(), deleted_at: null },
+      { ...base, id: 'deleted', customer_name: 'C', amount_paid_kobo: 500_000, updated_at: later(7_000).toISOString(), deleted_at: later(7_000).toISOString() },
+    ])
+    v2.close()
+
+    const v3 = openOrderDb(name)
+    const payments = await v3.payments.toArray()
+    expect(payments).toEqual([
+      expect.objectContaining({
+        id: 'part-paid', // same id on every device that upgrades this order: no duplicates
+        order_id: 'part-paid',
+        amount_kobo: 1_000_000,
+        paid_at: later(5_000).toISOString(),
+        created_at: later(5_000).toISOString(),
+        deleted_at: null,
+        synced: 0,
+      }),
+    ])
+    await v3.delete()
   })
 })
 

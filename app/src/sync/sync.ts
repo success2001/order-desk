@@ -1,5 +1,5 @@
 import type { OrderDb } from '../orders/db'
-import { SyncRejectedError, type RemoteRow, type SyncRecord } from './remote'
+import { SyncDeferredError, SyncRejectedError, type RemoteRow, type SyncRecord } from './remote'
 import type { SyncTable } from './tables'
 
 // Sync rules (BUILD_PLAN.md §3): the device is the source of truth for the
@@ -21,6 +21,8 @@ export interface SyncResult {
   pulled: number
   /** Rows the server refused; kept on the device with synced = 2. */
   rejected: number
+  /** Rows the server can't accept yet (e.g. their order isn't synced); retried on later syncs. */
+  deferred: number
 }
 
 /**
@@ -29,11 +31,12 @@ export interface SyncResult {
  * Throws SyncAuthError / SyncNetworkError from the remote.
  */
 export async function syncOnce(db: OrderDb, tables: readonly SyncTable[]): Promise<SyncResult> {
-  const result: SyncResult = { pushed: 0, pulled: 0, rejected: 0 }
+  const result: SyncResult = { pushed: 0, pulled: 0, rejected: 0, deferred: 0 }
   for (const table of tables) {
-    const { confirmed, rejected } = await pushChanges(db, table)
+    const { confirmed, rejected, deferred } = await pushChanges(db, table)
     result.pushed += confirmed
     result.rejected += rejected
+    result.deferred += deferred
   }
   for (const table of tables) result.pulled += await pullChanges(db, table)
   return result
@@ -44,39 +47,47 @@ export function cursorKey(table: Pick<SyncTable, 'name'>): string {
 }
 
 /**
- * Sends unsynced rows in batches. If the server rejects a batch, the rows are
- * retried one at a time so a single bad row cannot block the rest; rows the
- * server still refuses are set aside (synced = 2) with the reason.
+ * Sends unsynced rows in batches. If the server refuses a batch, the rows are
+ * retried one at a time so a single bad row cannot block the rest:
+ * - rows the server refuses outright are set aside (synced = 2) with the reason
+ * - rows it can't accept *yet* (SyncDeferredError) stay waiting for a later sync
  */
 export async function pushChanges<L extends SyncRecord, R extends RemoteRow>(
   db: OrderDb,
   table: SyncTable<L, R>,
-): Promise<{ confirmed: number; rejected: number }> {
+): Promise<{ confirmed: number; rejected: number; deferred: number }> {
   const local = table.local(db)
+  const deferredIds = new Set<string>()
   let confirmed = 0
   let rejected = 0
 
   for (let round = 0; round < MAX_ROUNDS; round++) {
-    const dirty = await local.where('synced').equals(0).limit(PUSH_BATCH).toArray()
+    const dirty = await local
+      .where('synced')
+      .equals(0)
+      .filter((row) => !deferredIds.has(row.id))
+      .limit(PUSH_BATCH)
+      .toArray()
     if (dirty.length === 0) break
 
     try {
       await table.remote.push(dirty.map((row) => table.toRemote(row)))
       confirmed += await settle(db, table, dirty, 1)
     } catch (err) {
-      if (!(err instanceof SyncRejectedError)) throw err
+      if (!(err instanceof SyncRejectedError || err instanceof SyncDeferredError)) throw err
       for (const row of dirty) {
         try {
           await table.remote.push([table.toRemote(row)])
           confirmed += await settle(db, table, [row], 1)
         } catch (rowErr) {
-          if (!(rowErr instanceof SyncRejectedError)) throw rowErr
-          rejected += await settle(db, table, [row], 2, rowErr.message)
+          if (rowErr instanceof SyncDeferredError) deferredIds.add(row.id)
+          else if (rowErr instanceof SyncRejectedError) rejected += await settle(db, table, [row], 2, rowErr.message)
+          else throw rowErr
         }
       }
     }
   }
-  return { confirmed, rejected }
+  return { confirmed, rejected, deferred: deferredIds.size }
 }
 
 /**

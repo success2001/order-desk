@@ -33,7 +33,6 @@ export async function createOrder(db: OrderDb, input: NewOrderInput, now = new D
     channel: input.channel ?? 'whatsapp',
     items: input.items,
     amount_due_kobo: input.amount_due_kobo,
-    amount_paid_kobo: input.amount_paid_kobo ?? 0,
     fulfilment_status: input.fulfilment_status ?? 'pending',
     delivered_at: deliveredAt(null, input.fulfilment_status ?? 'pending', timestamp),
     notes: input.notes ?? null,
@@ -50,19 +49,6 @@ export async function createOrder(db: OrderDb, input: NewOrderInput, now = new D
 
 export function updateOrder(db: OrderDb, id: string, changes: OrderChanges, now = new Date()): Promise<Order> {
   return modify(db, id, now, () => changes)
-}
-
-/** Adds a payment to what has already been received. */
-export function recordPayment(db: OrderDb, id: string, amountKobo: number, now = new Date()): Promise<Order> {
-  if (!Number.isSafeInteger(amountKobo) || amountKobo <= 0) {
-    return Promise.reject(new OrderValidationError({ amount_paid_kobo: 'Enter a payment greater than ₦0.' }))
-  }
-  return modify(db, id, now, (o) => ({ amount_paid_kobo: o.amount_paid_kobo + amountKobo }))
-}
-
-/** Sets the amount received to the full amount due. Leaves overpayments as they are. */
-export function markFullyPaid(db: OrderDb, id: string, now = new Date()): Promise<Order> {
-  return modify(db, id, now, (o) => ({ amount_paid_kobo: Math.max(o.amount_paid_kobo, o.amount_due_kobo) }))
 }
 
 export function setFulfilmentStatus(db: OrderDb, id: string, status: FulfilmentStatus, now = new Date()): Promise<Order> {

@@ -140,8 +140,11 @@ try {
   await page.getByText('Part-paid').waitFor()
   check('part payment leaves ₦15,000 owed', (await page.locator('dd.owed').textContent()) === '₦15,000')
   check(
-    'part payment synced',
-    await waitFor(async () => Number((await vendor.serverOrder('Ada Okafor'))?.amount_paid_kobo) === 1_000_000),
+    'part payment synced as a payment record',
+    await waitFor(async () => {
+      const paid = await vendor.serverPaidTotal('Ada Okafor')
+      return paid.total === 1_000_000 && paid.payments === 1
+    }),
   )
   await shot('04-detail-part-paid')
 
@@ -153,6 +156,13 @@ try {
   await page.getByRole('button', { name: 'Mark delivered' }).click()
   await page.getByText('Delivered', { exact: true }).waitFor()
   check('not sent -> dispatched -> delivered, fully paid', await visible(page.getByRole('button', { name: 'Reopen' })))
+  check(
+    '"Mark fully paid" synced as a second payment for the balance',
+    await waitFor(async () => {
+      const paid = await vendor.serverPaidTotal('Ada Okafor')
+      return paid.total === 2_500_000 && paid.payments === 2
+    }),
+  )
   check('delivery date shown', await visible(page.getByText(/^Delivered Today, /)))
   const delivered = await waitFor(async () => {
     const r = await vendor.serverOrder('Ada Okafor')
@@ -213,9 +223,12 @@ try {
   await page.getByLabel('Customer name').fill('Bayo')
   await page.getByLabel('What did they order?').fill('Small chops for 20')
   await page.getByLabel('Amount (₦)').fill('18500.50')
+  await page.getByText('More details (optional)').click()
+  await page.getByLabel('Amount already paid (₦)').fill('5,000')
   await page.getByRole('button', { name: 'Save order' }).click()
   check('order saved while offline', await visible(page.getByText('₦18,500.50')))
-  check('banner: offline with 1 change on phone', await visible(page.getByText('Offline · 1 change saved on this phone')))
+  check('offline order with a first payment shows part-paid', await visible(page.getByText('Part-paid')))
+  check('banner: offline with order + payment on phone', await visible(page.getByText('Offline · 2 changes saved on this phone')))
   await page.waitForTimeout(4_000) // past the after-save delay
   check('offline order not sent while offline', !(await vendor.serverOrder('Bayo')))
   await shot('06-offline-list')
@@ -225,6 +238,13 @@ try {
   const bayo = await waitFor(() => vendor.serverOrder('Bayo'))
   check('offline order synced when connection returned', bayo)
   check('amount stored exactly in kobo', Number(bayo?.amount_due_kobo) === 1_850_050)
+  check(
+    'first payment from the new-order form synced',
+    await waitFor(async () => {
+      const paid = await vendor.serverPaidTotal('Bayo')
+      return paid.total === 500_000 && paid.payments === 1
+    }),
+  )
   check('banner back to all backed up', await visible(page.getByText('All changes backed up'), 10_000))
 
   // Back button, then delete (synced as a soft delete).

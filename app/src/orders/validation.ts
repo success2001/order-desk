@@ -10,7 +10,6 @@ export type OrderFields = Pick<
   | 'channel'
   | 'items'
   | 'amount_due_kobo'
-  | 'amount_paid_kobo'
   | 'fulfilment_status'
   | 'notes'
 >
@@ -33,7 +32,6 @@ export function validateOrder(o: OrderFields): ValidationErrors {
   else if (items.length > 2000) errors.items = 'Items are too long (max 2000 characters).'
 
   if (!isAmount(o.amount_due_kobo)) errors.amount_due_kobo = 'Enter a valid amount.'
-  if (!isAmount(o.amount_paid_kobo)) errors.amount_paid_kobo = 'Enter a valid amount paid.'
 
   if (!FULFILMENT_STATUSES.includes(o.fulfilment_status)) errors.fulfilment_status = 'Unknown delivery status.'
 

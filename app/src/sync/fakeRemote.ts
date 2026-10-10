@@ -1,4 +1,4 @@
-import { SyncRejectedError, type OutgoingRow, type RemoteRow, type RemoteTable } from './remote'
+import { SyncDeferredError, SyncRejectedError, type OutgoingRow, type RemoteRow, type RemoteTable } from './remote'
 import type { RemoteOrderRow } from './tables'
 
 /**
@@ -17,9 +17,18 @@ export class FakeRemote<R extends RemoteRow & { created_at: string } = RemoteOrd
   duringPush: (() => Promise<void>) | null = null
   private clock = Date.parse('2026-10-10T08:00:00.000Z')
   private readonly immutable: readonly (keyof R)[]
+  private readonly references: { field: keyof OutgoingRow<R>; rows: ReadonlyMap<string, unknown> } | null
 
-  constructor(immutable: readonly (keyof R)[] = ['created_at']) {
+  /**
+   * @param references like a foreign key: rows whose `field` isn't an id in
+   *   `rows` are refused as "not yet" (e.g. payments before their order).
+   */
+  constructor(
+    immutable: readonly (keyof R)[] = ['created_at'],
+    references: { field: keyof OutgoingRow<R>; rows: ReadonlyMap<string, unknown> } | null = null,
+  ) {
     this.immutable = immutable
+    this.references = references
   }
 
   async push(rows: OutgoingRow<R>[]): Promise<void> {
@@ -27,6 +36,9 @@ export class FakeRemote<R extends RemoteRow & { created_at: string } = RemoteOrd
     if (this.failWith) throw this.failWith()
     const refused = rows.find((r) => this.rejectIds.has(r.id))
     if (refused) throw new SyncRejectedError(`new row for "${refused.id}" violates check constraint`)
+    const { references } = this
+    const orphan = references && rows.find((r) => !references.rows.has(String(r[references.field])))
+    if (orphan) throw new SyncDeferredError(`23503: "${orphan.id}" violates foreign key constraint`)
     const snapshot = rows.map((r) => ({ ...r }))
     if (this.duringPush) await this.duringPush()
     for (const row of snapshot) {

@@ -18,7 +18,6 @@ export interface Order extends SyncRecord {
   channel: Channel
   items: string
   amount_due_kobo: number
-  amount_paid_kobo: number
   fulfilment_status: FulfilmentStatus
   /**
    * ISO 8601 when the order last became delivered; null whenever it isn't delivered.
@@ -45,7 +44,6 @@ export interface NewOrderInput {
   channel?: Channel
   items: string
   amount_due_kobo: number
-  amount_paid_kobo?: number
   fulfilment_status?: FulfilmentStatus
   notes?: string | null
 }

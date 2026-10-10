@@ -2,10 +2,14 @@ import { useState, type FormEvent, type ReactNode } from 'react'
 import { goBack } from '../app/router'
 import { CHANNEL_LABELS } from '../orders/labels'
 import { koboToInput, parseNairaToKobo } from '../orders/money'
-import { OrderValidationError, createOrder, updateOrder } from '../orders/repository'
+import { OrderValidationError, updateOrder } from '../orders/repository'
 import { useDb } from '../orders/useDb'
 import { CHANNELS, type Channel, type Order } from '../orders/types'
 import type { ValidationErrors } from '../orders/validation'
+import { PaymentValidationError, createOrderWithPayment } from '../payments/repository'
+
+/** Order field errors, plus the first payment's amount on a new order. */
+type FormErrors = ValidationErrors & { amount_paid?: string }
 
 const LAST_CHANNEL_KEY = 'lastChannel'
 
@@ -34,21 +38,22 @@ export function OrderForm({ order }: { order?: Order }) {
   const [amountDue, setAmountDue] = useState(order ? koboToInput(order.amount_due_kobo) : '')
   const [channel, setChannel] = useState<Channel>(order?.channel ?? lastChannel)
   const [customerPhone, setCustomerPhone] = useState(order?.customer_phone ?? '')
-  const [amountPaid, setAmountPaid] = useState(order && order.amount_paid_kobo > 0 ? koboToInput(order.amount_paid_kobo) : '')
+  // New orders only: becomes the order's first payment. Edits manage payments on the order screen.
+  const [amountPaid, setAmountPaid] = useState('')
   const [notes, setNotes] = useState(order?.notes ?? '')
-  const [errors, setErrors] = useState<ValidationErrors>({})
+  const [errors, setErrors] = useState<FormErrors>({})
   const [saving, setSaving] = useState(false)
 
-  const hasMoreDetails = Boolean(order?.customer_phone || order?.notes || order?.amount_paid_kobo)
+  const hasMoreDetails = Boolean(order?.customer_phone || order?.notes)
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
 
     const due = parseNairaToKobo(amountDue)
-    const paid = amountPaid.trim() === '' ? 0 : parseNairaToKobo(amountPaid)
-    const amountErrors: ValidationErrors = {}
+    const paid = order || amountPaid.trim() === '' ? 0 : parseNairaToKobo(amountPaid)
+    const amountErrors: FormErrors = {}
     if (due === null) amountErrors.amount_due_kobo = 'Enter the amount, e.g. 25,000'
-    if (paid === null) amountErrors.amount_paid_kobo = 'Enter the amount paid, e.g. 10,000'
+    if (paid === null) amountErrors.amount_paid = 'Enter the amount paid, e.g. 10,000'
     if (due === null || paid === null) {
       setErrors(amountErrors)
       return
@@ -58,7 +63,6 @@ export function OrderForm({ order }: { order?: Order }) {
       customer_name: customerName,
       items,
       amount_due_kobo: due,
-      amount_paid_kobo: paid,
       channel,
       customer_phone: customerPhone,
       notes,
@@ -67,11 +71,12 @@ export function OrderForm({ order }: { order?: Order }) {
     setSaving(true)
     try {
       if (order) await updateOrder(db, order.id, fields)
-      else await createOrder(db, fields)
+      else await createOrderWithPayment(db, fields, paid)
       rememberChannel(channel)
       goBack()
     } catch (err) {
       if (err instanceof OrderValidationError) setErrors(err.errors)
+      else if (err instanceof PaymentValidationError) setErrors({ amount_paid: err.errors.amount_kobo ?? 'Check the amount paid.' })
       else setErrors({ customer_name: 'Could not save. Please try again.' })
       setSaving(false)
     }
@@ -127,18 +132,20 @@ export function OrderForm({ order }: { order?: Order }) {
         </div>
       </fieldset>
 
-      <details className="more" open={hasMoreDetails || Boolean(errors.customer_phone || errors.amount_paid_kobo || errors.notes)}>
+      <details className="more" open={hasMoreDetails || Boolean(errors.customer_phone || errors.amount_paid || errors.notes)}>
         <summary>More details (optional)</summary>
 
-        <Field label="Amount already paid (₦)" error={errors.amount_paid_kobo}>
-          <input
-            value={amountPaid}
-            onChange={(e) => setAmountPaid(e.target.value)}
-            inputMode="decimal"
-            placeholder="0"
-            autoComplete="off"
-          />
-        </Field>
+        {!order && (
+          <Field label="Amount already paid (₦)" error={errors.amount_paid}>
+            <input
+              value={amountPaid}
+              onChange={(e) => setAmountPaid(e.target.value)}
+              inputMode="decimal"
+              placeholder="0"
+              autoComplete="off"
+            />
+          </Field>
+        )}
 
         <Field label="Customer phone" error={errors.customer_phone}>
           <input

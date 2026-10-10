@@ -2,6 +2,7 @@ import { isAuthRetryableFetchError, type GoTrueClient } from '@supabase/auth-js'
 import { PostgrestClient } from '@supabase/postgrest-js'
 import {
   SyncAuthError,
+  SyncDeferredError,
   SyncNetworkError,
   SyncRejectedError,
   type RemoteRow,
@@ -38,6 +39,8 @@ export function createSupabaseRemote({ auth, vendorId, url, key }: Options) {
     const { status, error } = result
     if (status === 0) throw new SyncNetworkError(error.message)
     if (status === 401) throw new SyncAuthError(error.message)
+    // Foreign key missing (e.g. a payment whose order hasn't synced yet): retry later.
+    if (error.code === '23503') throw new SyncDeferredError(`${error.code}: ${error.message}`)
     // The server refused the data itself (constraint, permission, unknown column…).
     // Timeouts and rate limits are temporary, so they are retried instead.
     if (status >= 400 && status < 500 && status !== 408 && status !== 429) {

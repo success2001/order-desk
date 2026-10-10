@@ -14,7 +14,8 @@ import { createOrder, deleteOrder, getOrder, setFulfilmentStatus, updateOrder } 
 import { SyncAuthError } from './remote'
 import { createSupabaseRemote } from './supabaseRemote'
 import { syncOnce } from './sync'
-import { ordersTable, type RemoteOrderRow, type SyncTable } from './tables'
+import { ordersTable, paymentsTable, type RemoteOrderRow, type RemotePaymentRow, type SyncTable } from './tables'
+import { paidTotal, recordPayment } from '../payments/repository'
 
 const API_URL = import.meta.env.VITE_SUPABASE_URL
 const KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY
@@ -60,7 +61,7 @@ async function device(): Promise<{ db: OrderDb; tables: SyncTable[] }> {
   const db = openOrderDb(`live-${crypto.randomUUID()}`)
   dbs.push(db)
   const remote = createSupabaseRemote({ auth, vendorId, url: API_URL, key: KEY })
-  return { db, tables: [ordersTable(remote<RemoteOrderRow>('orders'))] }
+  return { db, tables: [ordersTable(remote<RemoteOrderRow>('orders')), paymentsTable(remote<RemotePaymentRow>('payments'))] }
 }
 
 const serverRow = async (id: string) =>
@@ -206,6 +207,54 @@ describe('live sync with Supabase', () => {
 
     expect((await serverRow(order.id))?.delivered_at).toBeNull()
     expect((await getOrder(phone.db, order.id))?.delivered_at).toBeNull()
+  })
+
+  it('payments recorded on two devices at the same time both reach the server and count', async () => {
+    const phone = await device()
+    const laptop = await device()
+    const order = await createOrder(phone.db, { customer_name: 'Gbenga', items: 'Lace', amount_due_kobo: 6_000_000 })
+    await syncOnce(phone.db, phone.tables)
+    await syncOnce(laptop.db, laptop.tables)
+
+    await recordPayment(phone.db, order.id, 2_000_000, { method: 'transfer' })
+    await recordPayment(laptop.db, order.id, 1_500_000, { method: 'cash' })
+    await syncOnce(phone.db, phone.tables)
+    await syncOnce(laptop.db, laptop.tables)
+    await syncOnce(phone.db, phone.tables)
+
+    const [server] = await sql`select count(*)::int as n, sum(amount_kobo)::bigint as total from public.payments
+      where order_id = ${order.id} and deleted_at is null`
+    expect(server.n).toBe(2)
+    expect(Number(server.total)).toBe(3_500_000)
+    expect(await paidTotal(phone.db, order.id)).toBe(3_500_000)
+    expect(await paidTotal(laptop.db, order.id)).toBe(3_500_000)
+  })
+
+  it('a payment whose order the server refused waits (deferred), it is not set aside', async () => {
+    const phone = await device()
+    const order = await createOrder(phone.db, { customer_name: 'Hauwa', items: 'Fabric', amount_due_kobo: 1_000_000 })
+    const payment = await recordPayment(phone.db, order.id, 400_000)
+    // Bypass the app's validation so the server refuses the order (name over 200 characters).
+    await phone.db.orders.update(order.id, { customer_name: 'x'.repeat(201) })
+
+    const result = await syncOnce(phone.db, phone.tables)
+
+    expect(result).toMatchObject({ rejected: 1, deferred: 1 })
+    expect(await phone.db.payments.get(payment.id)).toMatchObject({ synced: 0, sync_error: null })
+  })
+
+  it('a payment for an order deleted on the server is skipped silently', async () => {
+    const phone = await device()
+    const order = await createOrder(phone.db, { customer_name: 'Ifeoma', items: 'Bag', amount_due_kobo: 800_000 })
+    await syncOnce(phone.db, phone.tables)
+    await sql`delete from public.orders where id = ${order.id}`
+
+    await recordPayment(phone.db, order.id, 800_000)
+    const result = await syncOnce(phone.db, phone.tables)
+
+    expect(result).toMatchObject({ rejected: 0, deferred: 0 })
+    const [{ n }] = await sql`select count(*)::int as n from public.payments where order_id = ${order.id}`
+    expect(n).toBe(0)
   })
 
   it('refuses to sync when the session belongs to a different vendor', async () => {

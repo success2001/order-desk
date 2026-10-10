@@ -1,6 +1,7 @@
 import type { Table } from 'dexie'
 import type { OrderDb } from '../orders/db'
 import type { Order } from '../orders/types'
+import type { Payment } from '../payments/types'
 import { toIso, type OutgoingRow, type RemoteRow, type RemoteTable, type SyncRecord } from './remote'
 
 /**
@@ -34,7 +35,6 @@ export function toRemoteOrder(order: Order): OutgoingRow<RemoteOrderRow> {
     channel: order.channel,
     items: order.items,
     amount_due_kobo: order.amount_due_kobo,
-    amount_paid_kobo: order.amount_paid_kobo,
     fulfilment_status: order.fulfilment_status,
     delivered_at: order.delivered_at,
     notes: order.notes,
@@ -53,7 +53,6 @@ export function fromRemoteOrder(row: RemoteOrderRow): Order {
     channel: row.channel,
     items: row.items,
     amount_due_kobo: Number(row.amount_due_kobo),
-    amount_paid_kobo: Number(row.amount_paid_kobo),
     fulfilment_status: row.fulfilment_status,
     delivered_at: row.delivered_at ? toIso(row.delivered_at) : null,
     notes: row.notes,
@@ -72,5 +71,53 @@ export function ordersTable(remote: RemoteTable<RemoteOrderRow>): SyncTable<Orde
     local: (db) => db.orders,
     toRemote: toRemoteOrder,
     fromRemote: fromRemoteOrder,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Payments (public.payments). Must come after orders in the sync order: the
+// server's foreign key needs a payment's order to be there first.
+// ---------------------------------------------------------------------------
+
+/** A row as stored in public.payments. */
+export interface RemotePaymentRow extends RemoteRow, Omit<Payment, 'synced' | 'sync_error'> {}
+
+export function toRemotePayment(payment: Payment): OutgoingRow<RemotePaymentRow> {
+  return {
+    id: payment.id,
+    order_id: payment.order_id,
+    amount_kobo: payment.amount_kobo,
+    paid_at: payment.paid_at,
+    method: payment.method,
+    note: payment.note,
+    created_at: payment.created_at,
+    updated_at: payment.updated_at,
+    deleted_at: payment.deleted_at,
+  }
+}
+
+export function fromRemotePayment(row: RemotePaymentRow): Payment {
+  return {
+    id: row.id,
+    order_id: row.order_id,
+    amount_kobo: Number(row.amount_kobo),
+    paid_at: toIso(row.paid_at),
+    method: row.method,
+    note: row.note,
+    created_at: toIso(row.created_at),
+    updated_at: toIso(row.updated_at),
+    deleted_at: row.deleted_at ? toIso(row.deleted_at) : null,
+    synced: 1,
+    sync_error: null,
+  }
+}
+
+export function paymentsTable(remote: RemoteTable<RemotePaymentRow>): SyncTable<Payment, RemotePaymentRow> {
+  return {
+    name: 'payments',
+    remote,
+    local: (db) => db.payments,
+    toRemote: toRemotePayment,
+    fromRemote: fromRemotePayment,
   }
 }
