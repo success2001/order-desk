@@ -1,0 +1,8 @@
+{
+  // Use the project's portable Node 24 (in .tools/node) in this workspace's terminals only.
+  // Other projects keep the system Node (16.20.2).
+  "terminal.integrated.env.windows": {
+    "PATH": "${workspaceFolder}\\.tools\\node;${env:PATH}",
+    "npm_config_cache": "${workspaceFolder}\\.tools\\npm-cache"
+  }
+}

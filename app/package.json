@@ -1,0 +1,49 @@
+{
+  "name": "order-tracker",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "oxlint",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:live": "vitest run --mode live",
+    "test:e2e": "npm run build && node e2e/walkthrough.mjs prod && node e2e/walkthrough.mjs dev",
+    "test:perf": "npm run build && node e2e/performance.mjs",
+    "check": "npm run lint && npm run test && npm run build",
+    "db:push": "node scripts/db.mjs push",
+    "db:push:dry": "node scripts/db.mjs push --dry-run",
+    "db:test": "node scripts/db.mjs test",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@supabase/auth-js": "^2.117.3",
+    "@supabase/postgrest-js": "^2.117.3",
+    "dexie": "^4.4.6",
+    "dexie-react-hooks": "^4.4.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "@vite-pwa/assets-generator": "^2.0.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "fake-indexeddb": "^6.2.5",
+    "oxlint": "^1.81.0",
+    "playwright-core": "^1.64.0",
+    "postgres": "^3.4.9",
+    "supabase": "^2.120.0",
+    "typescript": "~6.0.2",
+    "vite": "^8.3.0",
+    "vite-plugin-pwa": "^2.0.0",
+    "vitest": "^5.0.3",
+    "workbox-window": "^7.4.1"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  // Type-checks the live Supabase tests, which also use Node APIs (process.loadEnvFile).
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.live.tsbuildinfo",
+    "types": ["vite/client", "node"]
+  },
+  "include": ["src/**/*.live.test.ts", "src/vite-env.d.ts"],
+  "exclude": []
+}

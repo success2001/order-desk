@@ -1,0 +1,39 @@
+# Root ignore rules. app/.gitignore adds the app's own rules on top of these.
+
+# Local tooling: portable Node 24 and its npm cache (see .nvmrc, BUILD_PLAN.md D6)
+.tools/
+
+# Dependencies and build output
+node_modules/
+dist/
+dist-ssr/
+*.tsbuildinfo
+.vite/
+
+# Environment files and local credentials (never commit).
+# Keeps example templates such as app/.env.example.
+.env
+.env.*
+!.env.example
+*.local
+
+# Supabase command-line tool cache
+**/supabase/.temp/
+
+# Browser test screenshots
+**/e2e/.screenshots/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Editor: keep the workspace settings (project Node path, no secrets)
+.vscode/*
+!.vscode/settings.json
+.idea/
+
+# Operating system files
+.DS_Store
+Thumbs.db
+desktop.ini
