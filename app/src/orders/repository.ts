@@ -35,6 +35,7 @@ export async function createOrder(db: OrderDb, input: NewOrderInput, now = new D
     amount_due_kobo: input.amount_due_kobo,
     amount_paid_kobo: input.amount_paid_kobo ?? 0,
     fulfilment_status: input.fulfilment_status ?? 'pending',
+    delivered_at: deliveredAt(null, input.fulfilment_status ?? 'pending', timestamp),
     notes: input.notes ?? null,
     created_at: timestamp,
     updated_at: timestamp,
@@ -103,14 +104,18 @@ async function modify(
     const existing = await db.orders.get(id)
     if (!existing || existing.deleted_at) throw new OrderNotFoundError(id)
 
+    const changes = change(existing)
+    const updated_at = nextUpdatedAt(existing.updated_at, now)
+    const fulfilment_status = changes.fulfilment_status ?? existing.fulfilment_status
     const updated: Order = normalise({
       ...existing,
-      ...change(existing),
+      ...changes,
       // Identity and bookkeeping fields cannot be overridden by changes.
       id: existing.id,
       created_at: existing.created_at,
       deleted_at: existing.deleted_at,
-      updated_at: nextUpdatedAt(existing.updated_at, now),
+      updated_at,
+      delivered_at: deliveredAt(existing, fulfilment_status, updated_at),
       // A new local change gets a fresh attempt, even if the previous one was rejected.
       synced: 0,
       sync_error: null,
@@ -119,6 +124,24 @@ async function modify(
     await db.orders.put(updated)
     return updated
   })
+}
+
+/**
+ * When the order was delivered, after a change to `nextStatus` made at `changeTime`:
+ * - becomes delivered → the time of this change
+ * - stays delivered → unchanged
+ * - not delivered (reopened, cancelled, back to dispatched) → null
+ * Delivered again later gets a new time, so it counts in the month of its latest delivery.
+ * The server's orders_before_write trigger enforces the same rule as a backstop.
+ */
+export function deliveredAt(
+  previous: Pick<Order, 'fulfilment_status' | 'delivered_at'> | null,
+  nextStatus: FulfilmentStatus,
+  changeTime: string,
+): string | null {
+  if (nextStatus !== 'delivered') return null
+  if (previous?.fulfilment_status === 'delivered' && previous.delivered_at) return previous.delivered_at
+  return changeTime
 }
 
 /**

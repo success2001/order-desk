@@ -36,6 +36,20 @@ export function openOrderDb(name: string): OrderDb {
     orders: 'id, created_at, updated_at, synced, fulfilment_status',
     meta: 'key',
   })
+  // v2: delivered_at, indexed for "delivered this period" reports.
+  db.version(2)
+    .stores({ orders: 'id, created_at, updated_at, synced, fulfilment_status, delivered_at' })
+    .upgrade((tx) =>
+      tx
+        .table<Order, string>('orders')
+        .toCollection()
+        .modify((order) => {
+          // Orders saved before v2 have no delivered_at; best guess is their last change.
+          if (order.delivered_at === undefined) {
+            order.delivered_at = order.fulfilment_status === 'delivered' ? order.updated_at : null
+          }
+        }),
+    )
   return db
 }
 

@@ -153,6 +153,28 @@ try {
   await page.getByRole('button', { name: 'Mark delivered' }).click()
   await page.getByText('Delivered', { exact: true }).waitFor()
   check('not sent -> dispatched -> delivered, fully paid', await visible(page.getByRole('button', { name: 'Reopen' })))
+  check('delivery date shown', await visible(page.getByText(/^Delivered Today, /)))
+  const delivered = await waitFor(async () => {
+    const r = await vendor.serverOrder('Ada Okafor')
+    return r?.fulfilment_status === 'delivered' && r.delivered_at ? r : null
+  })
+  check('delivered_at synced to Supabase', delivered)
+
+  // Reopen clears delivered_at; delivering again sets a new one.
+  await page.getByRole('button', { name: 'Reopen' }).click()
+  await page.getByText('Not sent', { exact: true }).waitFor()
+  check('reopen clears delivered_at on the server', await waitFor(async () => {
+    const r = await vendor.serverOrder('Ada Okafor')
+    return r?.fulfilment_status === 'pending' && r.delivered_at === null
+  }))
+  await page.getByRole('button', { name: 'Mark dispatched' }).click()
+  await page.getByText('Dispatched', { exact: true }).waitFor()
+  await page.getByRole('button', { name: 'Mark delivered' }).click()
+  await page.getByText('Delivered', { exact: true }).waitFor()
+  check('delivering again sets a newer delivered_at', await waitFor(async () => {
+    const r = await vendor.serverOrder('Ada Okafor')
+    return r?.delivered_at && r.delivered_at > delivered.delivered_at
+  }))
 
   // Edit.
   await page.getByRole('button', { name: 'Edit' }).click()

@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { openOrderDb, type OrderDb } from '../orders/db'
-import { createOrder, deleteOrder, getOrder, listOrders, updateOrder } from '../orders/repository'
+import { createOrder, deleteOrder, getOrder, listOrders, setFulfilmentStatus, updateOrder } from '../orders/repository'
 import type { NewOrderInput } from '../orders/types'
 import { FakeRemote } from './fakeRemote'
 import { SyncNetworkError, SyncRejectedError } from './remote'
@@ -150,6 +150,22 @@ describe('pull', () => {
 
     await pull(phone)
     expect((await phone.orders.get(order.id))?.updated_at).toBe('2026-10-10T09:00:05.123Z')
+  })
+
+  it('sends and receives delivered_at', async () => {
+    const other = device()
+    const order = await createOrder(other, input, T0)
+    await setFulfilmentStatus(other, order.id, 'delivered', at(1_000))
+    await sync(other)
+    expect(remote.rows.get(order.id)?.delivered_at).toBe(at(1_000).toISOString())
+
+    remote.serverWrite({
+      ...toRemote((await other.orders.get(order.id))!),
+      delivered_at: '2026-10-10T09:00:07.654321+00:00',
+      updated_at: at(9_000).toISOString(),
+    })
+    await pull(phone)
+    expect((await phone.orders.get(order.id))?.delivered_at).toBe('2026-10-10T09:00:07.654Z')
   })
 })
 

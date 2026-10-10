@@ -10,7 +10,7 @@ import { AuthClient, type GoTrueClient } from '@supabase/auth-js'
 import postgres from 'postgres'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { openOrderDb, type OrderDb } from '../orders/db'
-import { createOrder, deleteOrder, getOrder, updateOrder } from '../orders/repository'
+import { createOrder, deleteOrder, getOrder, setFulfilmentStatus, updateOrder } from '../orders/repository'
 import { SyncAuthError } from './remote'
 import { createSupabaseRemote } from './supabaseRemote'
 import { syncOnce } from './sync'
@@ -187,6 +187,25 @@ describe('live sync with Supabase', () => {
     expect(await serverRow(order.id)).toBeUndefined()
     const [record] = await sql`select vendor_id from private.deleted_records where table_name = 'orders' and record_id = ${order.id}`
     expect(record?.vendor_id).toBe(vendorId)
+  })
+
+  it('delivered_at round-trips: set when delivered, cleared on reopen, on both devices', async () => {
+    const phone = await device()
+    const laptop = await device()
+    const order = await createOrder(phone.db, { customer_name: 'Femi', items: 'Agbada', amount_due_kobo: 4_500_000 })
+    const delivered = await setFulfilmentStatus(phone.db, order.id, 'delivered')
+    await syncOnce(phone.db, phone.tables)
+
+    expect(new Date((await serverRow(order.id))?.delivered_at as Date).toISOString()).toBe(delivered.delivered_at)
+    await syncOnce(laptop.db, laptop.tables)
+    expect((await getOrder(laptop.db, order.id))?.delivered_at).toBe(delivered.delivered_at)
+
+    await setFulfilmentStatus(laptop.db, order.id, 'pending')
+    await syncOnce(laptop.db, laptop.tables)
+    await syncOnce(phone.db, phone.tables)
+
+    expect((await serverRow(order.id))?.delivered_at).toBeNull()
+    expect((await getOrder(phone.db, order.id))?.delivered_at).toBeNull()
   })
 
   it('refuses to sync when the session belongs to a different vendor', async () => {

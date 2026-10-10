@@ -20,6 +20,11 @@ export interface Order extends SyncRecord {
   amount_due_kobo: number
   amount_paid_kobo: number
   fulfilment_status: FulfilmentStatus
+  /**
+   * ISO 8601 when the order last became delivered; null whenever it isn't delivered.
+   * Managed by the repository (deliveredAt), never set directly.
+   */
+  delivered_at: string | null
   notes: string | null
   /** ISO 8601, device clock. */
   created_at: string
@@ -46,4 +51,6 @@ export interface NewOrderInput {
 }
 
 /** Fields a vendor can change on an existing order. */
-export type OrderChanges = Partial<Omit<Order, 'id' | 'created_at' | 'updated_at' | 'deleted_at' | 'synced' | 'sync_error'>>
+export type OrderChanges = Partial<
+  Omit<Order, 'id' | 'created_at' | 'updated_at' | 'deleted_at' | 'delivered_at' | 'synced' | 'sync_error'>
+>

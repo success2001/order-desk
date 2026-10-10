@@ -131,6 +131,7 @@ export function OrderDetail({ order }: { order: Order }) {
           <h3>Delivery</h3>
           <FulfilmentBadge order={order} />
         </div>
+        {order.delivered_at && <p className="muted">Delivered {formatOrderDate(order.delivered_at)}</p>}
         <div className="actions">
           {next && (
             <button

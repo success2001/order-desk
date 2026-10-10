@@ -1,4 +1,5 @@
 import 'fake-indexeddb/auto'
+import Dexie from 'dexie'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { openOrderDb, releaseOrderDb, type OrderDb } from './db'
 import {
@@ -206,6 +207,81 @@ describe('listOrders', () => {
     const order = await createOrder(db, input, T0)
     await setFulfilmentStatus(db, order.id, 'dispatched', later(1))
     expect((await listOrders(db)).map((o) => o.id)).toEqual([order.id])
+  })
+})
+
+describe('delivered_at', () => {
+  it('is null for a new order that is not delivered', async () => {
+    expect((await createOrder(db, input, T0)).delivered_at).toBeNull()
+  })
+
+  it('is the creation time for an order created as delivered', async () => {
+    const order = await createOrder(db, { ...input, fulfilment_status: 'delivered' }, T0)
+    expect(order.delivered_at).toBe(T0.toISOString())
+  })
+
+  it('is set to the time the order becomes delivered', async () => {
+    const order = await createOrder(db, input, T0)
+    await setFulfilmentStatus(db, order.id, 'dispatched', later(1_000))
+    const delivered = await setFulfilmentStatus(db, order.id, 'delivered', later(2_000))
+    expect(delivered.delivered_at).toBe(later(2_000).toISOString())
+  })
+
+  it('stays unchanged when a delivered order is edited or marked delivered again', async () => {
+    const order = await createOrder(db, input, T0)
+    await setFulfilmentStatus(db, order.id, 'delivered', later(1_000))
+    await updateOrder(db, order.id, { items: 'edited after delivery' }, later(2_000))
+    await recordPayment(db, order.id, 100_000, later(3_000))
+    const again = await setFulfilmentStatus(db, order.id, 'delivered', later(4_000))
+    expect(again.delivered_at).toBe(later(1_000).toISOString())
+  })
+
+  it.each(['pending', 'dispatched', 'cancelled'] as const)('is cleared when a delivered order becomes %s', async (status) => {
+    const order = await createOrder(db, input, T0)
+    await setFulfilmentStatus(db, order.id, 'delivered', later(1_000))
+    expect((await setFulfilmentStatus(db, order.id, status, later(2_000))).delivered_at).toBeNull()
+  })
+
+  it('gets a new time when delivered again after being reopened', async () => {
+    const order = await createOrder(db, input, T0)
+    await setFulfilmentStatus(db, order.id, 'delivered', later(1_000))
+    await setFulfilmentStatus(db, order.id, 'pending', later(2_000))
+    const redelivered = await setFulfilmentStatus(db, order.id, 'delivered', later(3_000))
+    expect(redelivered.delivered_at).toBe(later(3_000).toISOString())
+  })
+
+  it('matches updated_at even when the phone clock has gone backwards', async () => {
+    const order = await createOrder(db, input, T0)
+    const delivered = await setFulfilmentStatus(db, order.id, 'delivered', later(-60_000))
+    expect(delivered.delivered_at).toBe(delivered.updated_at)
+    expect(Date.parse(delivered.delivered_at!)).toBeGreaterThan(Date.parse(order.updated_at))
+  })
+
+  it('cannot be set directly through updateOrder', async () => {
+    const order = await createOrder(db, input, T0)
+    const sneaky = { delivered_at: '2020-01-01T00:00:00.000Z' } as never
+    expect((await updateOrder(db, order.id, sneaky, later(1))).delivered_at).toBeNull()
+  })
+})
+
+describe('database upgrade to version 2', () => {
+  it('fills delivered_at for orders saved before it existed', async () => {
+    const name = `upgrade-${crypto.randomUUID()}`
+    const v1 = new Dexie(name)
+    v1.version(1).stores({ orders: 'id, created_at, updated_at, synced, fulfilment_status', meta: 'key' })
+    const base = { customer_phone: null, channel: 'whatsapp', items: 'x', amount_due_kobo: 1, amount_paid_kobo: 0, notes: null, created_at: T0.toISOString(), deleted_at: null, synced: 1 }
+    await v1.table('orders').bulkAdd([
+      { ...base, id: 'delivered', customer_name: 'A', fulfilment_status: 'delivered', updated_at: later(5_000).toISOString() },
+      { ...base, id: 'pending', customer_name: 'B', fulfilment_status: 'pending', updated_at: later(6_000).toISOString() },
+    ])
+    v1.close()
+
+    const v2 = openOrderDb(name)
+    expect((await v2.orders.get('delivered'))?.delivered_at).toBe(later(5_000).toISOString())
+    expect((await v2.orders.get('pending'))?.delivered_at).toBeNull()
+    expect(await v2.orders.where('delivered_at').above('').count()).toBe(1) // new index works
+    expect((await v2.orders.get('delivered'))?.synced).toBe(1) // upgrade doesn't force a re-send
+    await v2.delete()
   })
 })
 
