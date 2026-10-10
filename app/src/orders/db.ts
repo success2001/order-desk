@@ -13,8 +13,21 @@ export type OrderDb = Dexie & {
 }
 
 /**
- * Opens the on-device database. One database per signed-in vendor
- * (e.g. `orders-<user id>`) keeps accounts apart on a shared phone.
+ * One database per signed-in vendor keeps accounts apart on a shared phone.
+ * "orderdesk-" replaced the earlier "orders-" names, which only ever held test
+ * data and are deleted on startup (store.ts deleteLegacyDatabases), so nothing
+ * in them can sync again.
+ */
+export const DB_PREFIX = 'orderdesk-'
+export const LEGACY_DB_PREFIX = 'orders-'
+
+export function vendorDbName(userId: string): string {
+  return `${DB_PREFIX}${userId}`
+}
+
+/**
+ * Opens an on-device database. Schema changes add a new db.version(n) with an
+ * upgrade where needed; never edit an existing version's stores.
  */
 export function openOrderDb(name: string): OrderDb {
   const db = new Dexie(name) as OrderDb

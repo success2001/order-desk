@@ -85,7 +85,7 @@ try {
           tx.onerror = () => reject(tx.error)
         }
       }),
-    [`orders-${VENDOR.id}`, ORDERS],
+    [`orderdesk-${VENDOR.id}`, ORDERS],
   )
   await page.evaluate(() => navigator.serviceWorker.ready)
 
@@ -146,7 +146,7 @@ try {
 } catch (err) {
   check('performance run completed', false, String(err).split('\n')[0])
 } finally {
-  await page.evaluate((name) => indexedDB.deleteDatabase(name), `orders-${VENDOR.id}`).catch(() => {})
+  await page.evaluate((name) => indexedDB.deleteDatabase(name), `orderdesk-${VENDOR.id}`).catch(() => {})
   await browser.close()
   await site.stop()
 }

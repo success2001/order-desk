@@ -60,6 +60,30 @@ try {
   await shot('00-signin-offline')
   await context.setOffline(false)
 
+  // An old pre-"orderdesk-" database from a test install, holding an unsent order.
+  await page.evaluate(
+    (name) =>
+      new Promise((resolve, reject) => {
+        const open = indexedDB.open(name, 10) // Dexie version(1) is IndexedDB version 10
+        open.onupgradeneeded = () => {
+          open.result.createObjectStore('orders', { keyPath: 'id' }).createIndex('synced', 'synced')
+          open.result.createObjectStore('meta', { keyPath: 'key' })
+        }
+        open.onerror = () => reject(open.error)
+        open.onsuccess = () => {
+          const tx = open.result.transaction('orders', 'readwrite')
+          const now = new Date().toISOString()
+          tx.objectStore('orders').put({
+            id: crypto.randomUUID(), customer_name: 'Legacy Order', customer_phone: null, channel: 'whatsapp',
+            items: 'old test data', amount_due_kobo: 100_000, amount_paid_kobo: 0, fulfilment_status: 'pending',
+            notes: null, created_at: now, updated_at: now, deleted_at: null, synced: 0,
+          })
+          tx.oncomplete = () => (open.result.close(), resolve())
+        }
+      }),
+    `orders-${vendor.account.id}`,
+  )
+
   // Signed-in vendor with a real session.
   await rememberVendor(vendor.account, vendor.session)
   await page.reload()
@@ -73,6 +97,14 @@ try {
     check('service worker controls page', await page.evaluate(() => !!navigator.serviceWorker.controller))
   }
   check('banner: all changes backed up', await visible(page.getByText('All changes backed up'), 10_000))
+  const dbNames = await waitFor(async () => {
+    const names = await page.evaluate(async () => (await indexedDB.databases()).map((d) => d.name))
+    return names.some((n) => n.startsWith('orders-')) ? null : names
+  }, 5_000)
+  check('old "orders-" database removed on startup', dbNames, dbNames ? dbNames.join(', ') : 'still present')
+  check('current database uses "orderdesk-" name', dbNames?.includes(`orderdesk-${vendor.account.id}`))
+  check('unsent order in old database never uploaded', !(await vendor.serverOrder('Legacy Order')))
+  check('old order not shown in the app', (await page.getByText('Legacy Order').count()) === 0)
   await shot('01-empty-list')
 
   // Validation.

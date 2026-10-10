@@ -1,4 +1,5 @@
 import Dexie from 'dexie'
+import { LEGACY_DB_PREFIX } from './db'
 
 /**
  * Asks the browser not to clear stored orders when the phone runs low on space
@@ -14,14 +15,35 @@ export async function requestPersistentStorage(): Promise<void> {
   }
 }
 
+/** Old database names from before "orderdesk-" (all test data). */
+export function isLegacyDbName(name: string): boolean {
+  return name.startsWith(LEGACY_DB_PREFIX)
+}
+
 /**
- * Removes the pre-sign-in database from T5 builds. It only ever held test
- * data (that build was never deployed), and orders now live per vendor.
+ * Deletes every pre-"orderdesk-" database on this device ("orders-device",
+ * "orders-<user id>"). They only ever held test data; any unsent changes in
+ * them are discarded on purpose so they can never be uploaded.
+ *
+ * Where the browser cannot list its databases, deletes the known names instead:
+ * "orders-device" and those of the given user ids.
  */
-export async function deleteLegacyDeviceDb(): Promise<void> {
+export async function deleteLegacyDatabases(knownUserIds: readonly string[] = []): Promise<string[]> {
+  let names: string[]
   try {
-    await Dexie.delete('orders-device')
+    names = (await indexedDB.databases()).map((db) => db.name ?? '').filter(isLegacyDbName)
   } catch {
-    // Nothing to remove.
+    names = [`${LEGACY_DB_PREFIX}device`, ...knownUserIds.map((id) => `${LEGACY_DB_PREFIX}${id}`)]
   }
+
+  const deleted: string[] = []
+  for (const name of names) {
+    try {
+      await Dexie.delete(name)
+      deleted.push(name)
+    } catch {
+      // Leave it; the app never opens these names, so it can't sync from them.
+    }
+  }
+  return deleted
 }
