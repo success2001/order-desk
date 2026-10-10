@@ -4,6 +4,7 @@ import { goBack, navigate, useRoute, type Route } from './app/router'
 import { auth, SUPABASE_KEY, SUPABASE_URL } from './auth/client'
 import { useAuth } from './auth/useAuth'
 import { AccountPage } from './components/AccountPage'
+import { DashboardPage } from './components/DashboardPage'
 import { OrderDetail } from './components/OrderDetail'
 import { OrderForm } from './components/OrderForm'
 import { OrdersList } from './components/OrdersList'
@@ -21,6 +22,7 @@ const TITLES: Record<Route['name'], string> = {
   list: 'Orders',
   new: 'New order',
   account: 'Account',
+  dashboard: 'Dashboard',
   detail: 'Order',
   edit: 'Edit order',
 }
@@ -69,9 +71,14 @@ function OrdersApp() {
         )}
         <h1>{TITLES[route.name]}</h1>
         {route.name === 'list' && (
-          <button type="button" className="topbar__action" onClick={() => navigate('/account')}>
-            Account
-          </button>
+          <nav className="topbar__actions" aria-label="Main">
+            <button type="button" className="topbar__action" onClick={() => navigate('/dashboard')}>
+              Dashboard
+            </button>
+            <button type="button" className="topbar__action" onClick={() => navigate('/account')}>
+              Account
+            </button>
+          </nav>
         )}
       </header>
       <SyncIndicator />
@@ -80,6 +87,7 @@ function OrdersApp() {
         {route.name === 'list' && <OrdersList />}
         {route.name === 'new' && <OrderForm />}
         {route.name === 'account' && <AccountPage />}
+        {route.name === 'dashboard' && <DashboardPage />}
         {(route.name === 'detail' || route.name === 'edit') && <OrderPage id={route.id} edit={route.name === 'edit'} />}
       </main>
     </div>

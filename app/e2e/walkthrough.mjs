@@ -324,6 +324,28 @@ try {
   await page.getByRole('button', { name: 'Back' }).click()
   await page.getByLabel('Show delivered and cancelled').uncheck()
 
+  // Dashboard: Ada (delivered, ₦25,000 received; a ₦2,000 payment voided) and
+  // Bayo (deleted; its ₦5,000 payment must not count), all created today.
+  await page.getByRole('button', { name: 'Dashboard' }).click()
+  await page.getByText('Received this month').waitFor()
+  const tile = (label) => page.locator('.tile', { has: page.getByText(label, { exact: true }) }).locator('.tile__value')
+  check('dashboard: received this month excludes voided and deleted', (await page.locator('.hero__value').textContent()) === '₦25,000')
+  check('dashboard: orders today (deleted left out)', (await tile('Orders today').textContent()) === '1')
+  check('dashboard: received today', (await tile('Received today').textContent()) === '₦25,000')
+  check('dashboard: delivered this month', (await tile('Delivered this month').textContent()) === '1')
+  check('dashboard: nothing awaiting delivery', (await tile('Awaiting delivery').textContent()) === '0')
+  check('dashboard: nothing outstanding', (await tile('Customers still owe').textContent()) === '₦0')
+  const [ordersChart, moneyChart] = [page.locator('.chart').nth(0), page.locator('.chart').nth(1)]
+  await ordersChart.locator('.chart__hit').last().focus()
+  check('dashboard: orders chart tooltip on keyboard focus', await visible(ordersChart.locator('.chart__tooltip', { hasText: '1 order' })))
+  await moneyChart.locator('.chart__hit').last().focus()
+  check('dashboard: money chart tooltip on keyboard focus', await visible(moneyChart.locator('.chart__tooltip', { hasText: '₦25,000' })))
+  await page.getByText('Show as table').first().click()
+  check('dashboard: chart has a table view', await visible(page.locator('.chart__table table').first()))
+  await shot('08a-dashboard')
+  await page.getByRole('button', { name: 'Back' }).click()
+  await page.getByText('No open orders.').waitFor()
+
   // Sign-out works offline; another vendor on the phone sees none of these orders.
   await context.setOffline(true)
   await page.getByRole('button', { name: 'Account' }).click()
@@ -349,6 +371,9 @@ try {
   await page.getByLabel('Show delivered and cancelled').check()
   check('orders kept after sign-out and back in', await visible(page.getByText('Ada Okafor')))
   await shot('09-dark-list')
+  await page.getByRole('button', { name: 'Dashboard' }).click()
+  await page.getByText('Received this month').waitFor()
+  await shot('10-dark-dashboard')
 } catch (err) {
   check('walkthrough completed', false, String(err).split('\n')[0])
   await shot('99-failure').catch(() => {})

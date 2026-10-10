@@ -22,6 +22,9 @@
   --radius: 12px;
   --tap: 48px;
 
+  /* Chart marks (validated with the dataviz palette checks against --surface). */
+  --chart-bar: #0f7b4b;
+
   font: 16px/1.45 system-ui, 'Segoe UI', Roboto, sans-serif;
   color-scheme: light dark;
   color: var(--text);
@@ -50,6 +53,9 @@
     --blue-fg: #a4c6f4;
     --grey-bg: #262c29;
     --grey-fg: #b5beb9;
+
+    /* The brand green (#3fbf84) is too light for marks on the dark card; this passes. */
+    --chart-bar: #2fa66f;
   }
 }
 
@@ -124,6 +130,231 @@ p {
   background: none;
   font-weight: 600;
   cursor: pointer;
+}
+
+.topbar__actions {
+  display: flex;
+  margin-left: auto;
+  margin-right: -0.5rem;
+}
+
+.topbar__actions .topbar__action {
+  margin: 0;
+}
+
+/* ----- Dashboard ----- */
+
+.dashboard {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.hero {
+  padding: 0.25rem 0 0.5rem;
+}
+
+.hero__label,
+.tile__label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.hero__value {
+  font-size: 3rem;
+  font-weight: 700;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.tile {
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.tile__value {
+  margin-top: 0.15rem;
+  font-size: 1.6rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.tile__note,
+.delta {
+  margin-top: 0.15rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.delta--up {
+  color: var(--green-fg);
+}
+
+.delta--down {
+  color: var(--red-fg);
+}
+
+.dashboard__note {
+  text-align: center;
+}
+
+.chart {
+  margin: 0;
+}
+
+.chart__title {
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+}
+
+.chart__frame {
+  position: relative;
+}
+
+.chart__frame svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.chart__grid {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.chart__tick {
+  fill: var(--muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart__value {
+  fill: var(--text);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.chart__bar {
+  fill: var(--chart-bar);
+}
+
+.chart__bar--dim {
+  opacity: 0.45;
+}
+
+.chart__hit {
+  fill: transparent;
+  cursor: pointer;
+  outline: none;
+}
+
+.chart__hit:focus-visible {
+  stroke: var(--text);
+  stroke-width: 1;
+}
+
+.chart__tooltip {
+  position: absolute;
+  top: -0.5rem;
+  z-index: 1;
+  display: grid;
+  padding: 0.3rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.15);
+  font-size: 0.8rem;
+  white-space: nowrap;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.chart__tooltip span {
+  color: var(--muted);
+}
+
+.chart__table {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.chart__table summary {
+  color: var(--brand);
+  cursor: pointer;
+}
+
+.chart__table table {
+  width: 100%;
+  margin-top: 0.4rem;
+  border-collapse: collapse;
+}
+
+.chart__table th,
+.chart__table td {
+  padding: 0.2rem 0;
+  border-top: 1px solid var(--border);
+  text-align: left;
+  font-weight: normal;
+}
+
+.chart__table td {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.breakdown + .breakdown {
+  margin-top: 0.75rem;
+}
+
+.breakdown__title {
+  margin: 0.5rem 0 0.35rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.breakdown__rows {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.breakdown__row {
+  display: grid;
+  grid-template-columns: 6.5rem 1fr;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.breakdown__track {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.breakdown__bar {
+  height: 12px;
+  min-width: 2px;
+  max-width: calc(100% - 2.5rem);
+  border-radius: 0 4px 4px 0;
+  background: var(--chart-bar);
+}
+
+.breakdown__value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 .signin h2 {
