@@ -115,9 +115,9 @@ function DashboardView({ d }: { d: Dashboard }) {
         />
       </section>
 
-      <p className="muted small dashboard__note">
+      {/* <p className="muted small dashboard__note">
         Figures use Lagos time and are calculated on this phone from your saved orders and payments.
-      </p>
+      </p> */}
     </div>
   )
 }
