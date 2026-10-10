@@ -88,7 +88,10 @@ beforeAll(async () => {
 afterAll(async () => {
   await Promise.all(dbs.map((db) => db.delete()))
   await sql`delete from auth.users where id = ${vendorId}` // cascades to the vendor's orders
-  const [{ n }] = await sql`select count(*)::int as n from public.orders where vendor_id = ${vendorId}`
+  // The cascade records each deleted order; remove this test vendor's records too.
+  await sql`delete from private.deleted_records where vendor_id = ${vendorId}`
+  const [{ n }] = await sql`select ((select count(*) from public.orders where vendor_id = ${vendorId})
+    + (select count(*) from private.deleted_records where vendor_id = ${vendorId}))::int as n`
   await sql.end()
   expect(n).toBe(0)
 })
@@ -166,6 +169,24 @@ describe('live sync with Supabase', () => {
     const stored = await phone.db.orders.get(bad.id)
     expect(stored?.synced).toBe(2)
     expect(stored?.sync_error).toMatch(/23514|check constraint/)
+  })
+
+  it('does not re-create an order hard-deleted on the server, and reports no error', async () => {
+    const phone = await device()
+    const order = await createOrder(phone.db, { customer_name: 'Efe', items: 'Perfume', amount_due_kobo: 3_000_000 })
+    await syncOnce(phone.db, phone.tables)
+    expect(await serverRow(order.id)).toBeDefined()
+
+    // Deleted on the server (e.g. from the dashboard) while the phone still holds it.
+    await sql`delete from public.orders where id = ${order.id}`
+    await updateOrder(phone.db, order.id, { items: 'Perfume (edited offline)' })
+
+    const result = await syncOnce(phone.db, phone.tables)
+
+    expect(result.rejected).toBe(0)
+    expect(await serverRow(order.id)).toBeUndefined()
+    const [record] = await sql`select vendor_id from private.deleted_records where table_name = 'orders' and record_id = ${order.id}`
+    expect(record?.vendor_id).toBe(vendorId)
   })
 
   it('refuses to sync when the session belongs to a different vendor', async () => {

@@ -130,6 +130,10 @@ begin
   delete from auth.users where id in (vendor_a, vendor_b);  -- cascades to their orders
   select count(*) into n from public.orders where vendor_id in (vendor_a, vendor_b);
   if n <> 0 then raise exception 'FAIL 14: orders not removed when account deleted'; end if;
+
+  -- The cascade recorded the deleted order (20261010120000_deleted_records);
+  -- remove the record so this fixed test id can be inserted again next run.
+  delete from private.deleted_records where table_name = 'orders' and record_id = order_a;
 end;
 $$;
 

@@ -63,8 +63,11 @@ export async function createTempVendor(sql, { url, key }) {
       (await sql`select * from public.orders where vendor_id = ${id} and customer_name = ${customerName}`)[0],
     async remove() {
       await sql`delete from auth.users where id = ${id}` // cascades to orders
-      const [{ n }] = await sql`select count(*)::int as n from public.orders where vendor_id = ${id}`
-      return n === 0
+      // The cascade records each deleted order; remove this test vendor's records too.
+      await sql`delete from private.deleted_records where vendor_id = ${id}`
+      const [{ n }] = await sql`select (select count(*) from public.orders where vendor_id = ${id})
+        + (select count(*) from private.deleted_records where vendor_id = ${id}) as n`
+      return Number(n) === 0
     },
   }
 }
