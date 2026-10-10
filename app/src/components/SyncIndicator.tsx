@@ -15,6 +15,7 @@ function subscribeOnline(callback: () => void) {
 const plural = (n: number) => `${n} ${n === 1 ? 'change' : 'changes'}`
 
 /** Always-visible backup status (BUILD_PLAN.md §3). */
+//fixed to /** Shows backup status only when attention is needed. */
 export function SyncIndicator() {
   const { status, waiting, rejected, syncNow } = useSync()
   const { signOut } = useAuth()
@@ -38,6 +39,10 @@ export function SyncIndicator() {
         </button>
       </div>
     )
+  }
+  
+  if (online && status === 'idle' && waiting === 0 && rejected === 0) {
+    return null
   }
 
   let text: string
