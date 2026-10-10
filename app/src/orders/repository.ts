@@ -3,7 +3,7 @@ import type { FulfilmentStatus, NewOrderInput, Order, OrderChanges } from './typ
 import { validateOrder, type ValidationErrors } from './validation'
 
 // All order reads and writes go through here. Every write saves to the device
-// first and marks the order unsynced (synced = 0) for the sync engine (T7).
+// first and marks the order unsynced (synced = 0, no sync_error) for the sync engine.
 
 export class OrderValidationError extends Error {
   readonly errors: ValidationErrors
@@ -40,6 +40,7 @@ export async function createOrder(db: OrderDb, input: NewOrderInput, now = new D
     updated_at: timestamp,
     deleted_at: null,
     synced: 0,
+    sync_error: null,
   })
   assertValid(order)
   await db.orders.add(order)
@@ -73,7 +74,7 @@ export async function deleteOrder(db: OrderDb, id: string, now = new Date()): Pr
     const existing = await db.orders.get(id)
     if (!existing || existing.deleted_at) throw new OrderNotFoundError(id)
     const updated_at = nextUpdatedAt(existing.updated_at, now)
-    await db.orders.put({ ...existing, deleted_at: updated_at, updated_at, synced: 0 })
+    await db.orders.put({ ...existing, deleted_at: updated_at, updated_at, synced: 0, sync_error: null })
   })
 }
 
@@ -110,7 +111,9 @@ async function modify(
       created_at: existing.created_at,
       deleted_at: existing.deleted_at,
       updated_at: nextUpdatedAt(existing.updated_at, now),
+      // A new local change gets a fresh attempt, even if the previous one was rejected.
       synced: 0,
+      sync_error: null,
     })
     assertValid(updated)
     await db.orders.put(updated)

@@ -1,8 +1,6 @@
-import { useLiveQuery } from 'dexie-react-hooks'
 import { useSyncExternalStore } from 'react'
 import { resetRoute } from '../app/router'
 import { useAuth } from '../auth/useAuth'
-import { useDb } from '../orders/useDb'
 import { useSync } from '../sync/useSync'
 
 function subscribeOnline(callback: () => void) {
@@ -14,19 +12,19 @@ function subscribeOnline(callback: () => void) {
   }
 }
 
+const plural = (n: number) => `${n} ${n === 1 ? 'change' : 'changes'}`
+
 /** Always-visible backup status (BUILD_PLAN.md §3). */
 export function SyncIndicator() {
-  const db = useDb()
-  const { status, syncNow } = useSync()
+  const { status, waiting, rejected, syncNow } = useSync()
   const { signOut } = useAuth()
   const online = useSyncExternalStore(subscribeOnline, () => navigator.onLine)
-  const waiting = useLiveQuery(() => db.orders.where('synced').equals(0).count(), [db], 0)
-  const changes = `${waiting} ${waiting === 1 ? 'change' : 'changes'}`
 
   if (status === 'signin-required') {
+    const notBackedUp = waiting + rejected
     return (
       <div className="sync sync--attention" role="status">
-        <span>{waiting > 0 ? `Sign in again to back up ${changes}.` : 'Sign in again to keep backing up.'}</span>
+        <span>{notBackedUp > 0 ? `Sign in again to back up ${plural(notBackedUp)}.` : 'Sign in again to keep backing up.'}</span>
         <button
           type="button"
           className="sync__action"
@@ -45,16 +43,20 @@ export function SyncIndicator() {
   let text: string
   let tone: 'ok' | 'waiting' | 'offline' | 'attention'
   if (!online || status === 'offline') {
-    text = waiting > 0 ? `Offline · ${changes} saved on this phone` : 'Offline · all changes backed up'
+    text = waiting > 0 ? `Offline · ${plural(waiting)} saved on this phone` : 'Offline · all changes backed up'
     tone = 'offline'
+  } else if (rejected > 0) {
+    // Set aside by the server; editing the order sends it again.
+    text = `${plural(rejected)} couldn’t be backed up. Open the order marked “Not backed up”.`
+    tone = 'attention'
   } else if (status === 'error') {
-    text = `Couldn’t back up ${changes}. Retrying soon.`
+    text = `Couldn’t back up ${plural(waiting)}. Retrying soon.`
     tone = 'attention'
   } else if (status === 'syncing') {
     text = 'Backing up…'
     tone = 'waiting'
   } else if (waiting > 0) {
-    text = `${changes} waiting to back up`
+    text = `${plural(waiting)} waiting to back up`
     tone = 'waiting'
   } else {
     text = 'All changes backed up'

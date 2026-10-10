@@ -6,6 +6,10 @@ export interface SyncState {
   status: SyncStatus
   /** ISO time of the last successful sync on this device, or null. */
   lastSyncedAt: string | null
+  /** Local changes not yet sent, across all synced tables. */
+  waiting: number
+  /** Local changes the server refused (kept on the device), across all synced tables. */
+  rejected: number
   /** Start a sync now (ignored while one is running; it re-runs afterwards). */
   syncNow: () => void
 }

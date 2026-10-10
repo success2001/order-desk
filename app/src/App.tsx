@@ -15,6 +15,7 @@ import { useDb } from './orders/useDb'
 import { getOrder } from './orders/repository'
 import { createSupabaseRemote } from './sync/supabaseRemote'
 import { SyncProvider } from './sync/SyncProvider'
+import { ordersTable, type RemoteOrderRow } from './sync/tables'
 
 const TITLES: Record<Route['name'], string> = {
   list: 'Orders',
@@ -43,12 +44,13 @@ function App() {
 }
 
 function SyncedOrdersApp({ vendorId }: { vendorId: string }) {
-  const remote = useMemo(
-    () => createSupabaseRemote({ auth, vendorId, url: SUPABASE_URL, key: SUPABASE_KEY }),
-    [vendorId],
-  )
+  // Synced tables, in push/pull order (tables that others reference come first).
+  const tables = useMemo(() => {
+    const remote = createSupabaseRemote({ auth, vendorId, url: SUPABASE_URL, key: SUPABASE_KEY })
+    return [ordersTable(remote<RemoteOrderRow>('orders'))]
+  }, [vendorId])
   return (
-    <SyncProvider remote={remote}>
+    <SyncProvider tables={tables}>
       <OrdersApp />
     </SyncProvider>
   )

@@ -1,20 +1,17 @@
-import { useLiveQuery } from 'dexie-react-hooks'
 import { resetRoute } from '../app/router'
 import { useAuth } from '../auth/useAuth'
 import { formatOrderDate } from '../orders/labels'
-import { useDb } from '../orders/useDb'
 import { useSync } from '../sync/useSync'
 
 export function AccountPage() {
   const { account, signOut } = useAuth()
-  const { lastSyncedAt } = useSync()
-  const db = useDb()
-  const waiting = useLiveQuery(() => db.orders.where('synced').equals(0).count(), [db], 0)
+  const { lastSyncedAt, waiting, rejected } = useSync()
+  const notBackedUp = waiting + rejected
 
   function handleSignOut() {
     const message =
-      waiting > 0
-        ? `${waiting} ${waiting === 1 ? 'change hasn’t' : 'changes haven’t'} been backed up yet. ` +
+      notBackedUp > 0
+        ? `${notBackedUp} ${notBackedUp === 1 ? 'change hasn’t' : 'changes haven’t'} been backed up yet. ` +
           'They stay on this phone and will be backed up when you sign in again with this email.\n\nSign out?'
         : 'Sign out?'
     if (confirm(message)) {

@@ -1,6 +1,12 @@
 import { isAuthRetryableFetchError, type GoTrueClient } from '@supabase/auth-js'
 import { PostgrestClient } from '@supabase/postgrest-js'
-import { SyncAuthError, SyncNetworkError, type RemoteOrderRow, type RemoteOrders } from './remote'
+import {
+  SyncAuthError,
+  SyncNetworkError,
+  SyncRejectedError,
+  type RemoteRow,
+  type RemoteTable,
+} from './remote'
 
 interface Options {
   auth: GoTrueClient
@@ -10,8 +16,8 @@ interface Options {
   key: string
 }
 
-/** RemoteOrders backed by Supabase (PostgREST), authenticated as the signed-in vendor. */
-export function createSupabaseRemote({ auth, vendorId, url, key }: Options): RemoteOrders {
+/** Gives RemoteTables backed by Supabase (PostgREST), authenticated as the signed-in vendor. */
+export function createSupabaseRemote({ auth, vendorId, url, key }: Options) {
   async function client(): Promise<PostgrestClient> {
     const { data, error } = await auth.getSession()
     const session = data.session
@@ -19,7 +25,7 @@ export function createSupabaseRemote({ auth, vendorId, url, key }: Options): Rem
       if (error && isAuthRetryableFetchError(error)) throw new SyncNetworkError()
       throw new SyncAuthError()
     }
-    // Never upload one vendor's on-device orders into another vendor's account.
+    // Never upload one vendor's on-device data into another vendor's account.
     if (session.user.id !== vendorId) throw new SyncAuthError('Signed-in session belongs to a different account')
 
     return new PostgrestClient(`${url}/rest/v1`, {
@@ -29,25 +35,34 @@ export function createSupabaseRemote({ auth, vendorId, url, key }: Options): Rem
 
   function check(result: { error: { message: string; code?: string } | null; status: number }): void {
     if (!result.error) return
-    if (result.status === 0) throw new SyncNetworkError(result.error.message)
-    if (result.status === 401) throw new SyncAuthError(result.error.message)
-    throw new Error(`Sync failed (${result.status} ${result.error.code ?? ''}): ${result.error.message}`)
+    const { status, error } = result
+    if (status === 0) throw new SyncNetworkError(error.message)
+    if (status === 401) throw new SyncAuthError(error.message)
+    // The server refused the data itself (constraint, permission, unknown column…).
+    // Timeouts and rate limits are temporary, so they are retried instead.
+    if (status >= 400 && status < 500 && status !== 408 && status !== 429) {
+      throw new SyncRejectedError(`${error.code ? `${error.code}: ` : ''}${error.message}`)
+    }
+    throw new Error(`Sync failed (${status} ${error.code ?? ''}): ${error.message}`)
   }
 
-  return {
-    async push(rows) {
-      const db = await client()
-      // vendor_id is omitted: the database fills it from the session (and RLS enforces it).
-      check(await db.from('orders').upsert(rows, { onConflict: 'id' }))
-    },
+  return function table<R extends RemoteRow>(name: string): RemoteTable<R> {
+    return {
+      async push(rows) {
+        const db = await client()
+        // vendor_id is omitted: the database fills it from the session (and RLS enforces it).
+        // The client is untyped (no generated schema), so rows go as plain objects.
+        check(await db.from(name).upsert(rows as Record<string, unknown>[], { onConflict: 'id' }))
+      },
 
-    async pull(since, limit) {
-      const db = await client()
-      let query = db.from('orders').select('*')
-      if (since) query = query.gt('server_updated_at', since)
-      const result = await query.order('server_updated_at').order('id').limit(limit)
-      check(result)
-      return (result.data ?? []) as RemoteOrderRow[]
-    },
+      async pull(since, limit) {
+        const db = await client()
+        let query = db.from(name).select('*')
+        if (since) query = query.gt('server_updated_at', since)
+        const result = await query.order('server_updated_at').order('id').limit(limit)
+        check(result)
+        return (result.data ?? []) as R[]
+      },
+    }
   }
 }

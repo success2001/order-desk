@@ -1,18 +1,40 @@
-import type { Order } from '../orders/types'
+// Shapes shared by every synced table (orders now, payments next).
 
-/** A row as stored in public.orders. */
-export interface RemoteOrderRow extends Omit<Order, 'synced'> {
+/** Sync state of a local record: 0 = changes not yet sent, 1 = in sync, 2 = rejected by the server. */
+export type SyncState = 0 | 1 | 2
+
+/** Fields every synced local record has. */
+export interface SyncRecord {
+  id: string
+  /** ISO 8601, device clock. Drives "most recent change wins". */
+  updated_at: string
+  /** ISO 8601 when soft-deleted, otherwise null. */
+  deleted_at: string | null
+  /** Local only. Numeric so Dexie can index it. */
+  synced: SyncState
+  /** Local only: why the server rejected the last change (when synced = 2). */
+  sync_error?: string | null
+}
+
+/** Fields every server row has. */
+export interface RemoteRow {
+  id: string
+  updated_at: string
+  deleted_at: string | null
   vendor_id?: string
-  /** Server clock, set by the orders_before_write trigger. Raw string to keep microseconds. */
+  /** Server clock, set by the table's before-write trigger. Raw string to keep microseconds. */
   server_updated_at: string
 }
 
-/** What the sync engine needs from the server. Supabase in the app, an in-memory fake in unit tests. */
-export interface RemoteOrders {
+/** A row as sent to the server: the server fills in vendor_id and server_updated_at. */
+export type OutgoingRow<R extends RemoteRow> = Omit<R, 'server_updated_at' | 'vendor_id'>
+
+/** One server table, as the sync engine sees it. Supabase in the app, an in-memory fake in unit tests. */
+export interface RemoteTable<R extends RemoteRow> {
   /** Insert or update. The server silently skips rows older than what it holds. */
-  push(rows: Omit<RemoteOrderRow, 'server_updated_at' | 'vendor_id'>[]): Promise<void>
+  push(rows: OutgoingRow<R>[]): Promise<void>
   /** Rows changed after `since` (exclusive), oldest first, at most `limit`. `since` null = from the start. */
-  pull(since: string | null, limit: number): Promise<RemoteOrderRow[]>
+  pull(since: string | null, limit: number): Promise<R[]>
 }
 
 /** The session is missing, expired beyond refresh, or for a different vendor: the vendor must sign in again. */
@@ -31,43 +53,18 @@ export class SyncNetworkError extends Error {
   }
 }
 
-/** Local order → server row. vendor_id is filled in by the server from the session. */
-export function toRemote(order: Order): Omit<RemoteOrderRow, 'server_updated_at' | 'vendor_id'> {
-  return {
-    id: order.id,
-    customer_name: order.customer_name,
-    customer_phone: order.customer_phone,
-    channel: order.channel,
-    items: order.items,
-    amount_due_kobo: order.amount_due_kobo,
-    amount_paid_kobo: order.amount_paid_kobo,
-    fulfilment_status: order.fulfilment_status,
-    notes: order.notes,
-    created_at: order.created_at,
-    updated_at: order.updated_at,
-    deleted_at: order.deleted_at,
+/**
+ * The server refused the data itself (e.g. a constraint or permission failure).
+ * Retrying the same rows unchanged will fail again, so they are set aside.
+ */
+export class SyncRejectedError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'SyncRejectedError'
   }
 }
 
-/** Server row → local order, marked in sync. Timestamps normalised to the app's ISO format. */
-export function fromRemote(row: RemoteOrderRow): Order {
-  return {
-    id: row.id,
-    customer_name: row.customer_name,
-    customer_phone: row.customer_phone,
-    channel: row.channel,
-    items: row.items,
-    amount_due_kobo: Number(row.amount_due_kobo),
-    amount_paid_kobo: Number(row.amount_paid_kobo),
-    fulfilment_status: row.fulfilment_status,
-    notes: row.notes,
-    created_at: toIso(row.created_at),
-    updated_at: toIso(row.updated_at),
-    deleted_at: row.deleted_at ? toIso(row.deleted_at) : null,
-    synced: 1,
-  }
-}
-
-function toIso(timestamp: string): string {
+/** Normalises a server timestamp to the app's ISO format (drops microseconds). */
+export function toIso(timestamp: string): string {
   return new Date(timestamp).toISOString()
 }

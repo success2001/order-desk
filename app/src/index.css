@@ -400,6 +400,12 @@ p {
   color: var(--blue-fg);
 }
 
+.badge--rejected {
+  background: var(--red-bg);
+  color: var(--red-fg);
+  border: 1px solid currentColor;
+}
+
 .badge--cancelled {
   background: var(--grey-bg);
   color: var(--grey-fg);
@@ -547,6 +553,20 @@ p {
 
 .card p + h3 {
   margin-top: 0.75rem;
+}
+
+.card--attention {
+  border-color: var(--red-fg);
+  background: var(--red-bg);
+  color: var(--red-fg);
+}
+
+.card--attention h3 {
+  color: inherit;
+}
+
+.small {
+  font-size: 0.85rem;
 }
 
 .card__title {

@@ -63,6 +63,14 @@ export function OrderDetail({ order }: { order: Order }) {
         </p>
       </header>
 
+      {order.synced === 2 && (
+        <div className="card card--attention" role="alert">
+          <h3>Not backed up</h3>
+          <p>The server didn’t accept the last change to this order, so it’s only saved on this phone. Edit the order to try again.</p>
+          {order.sync_error && <p className="muted small">Reason: {order.sync_error}</p>}
+        </div>
+      )}
+
       <section className="card">
         <h3>Items</h3>
         <p className="prewrap">{order.items}</p>

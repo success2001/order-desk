@@ -43,6 +43,7 @@ export function OrdersList() {
                   <span className="order-row__bottom">
                     <PaymentBadge order={order} />
                     <FulfilmentBadge order={order} />
+                    {order.synced === 2 && <span className="badge badge--rejected">Not backed up</span>}
                     {balance > 0 && balance < order.amount_due_kobo && (
                       <span className="order-row__balance">{formatKobo(balance)} left</span>
                     )}

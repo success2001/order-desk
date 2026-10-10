@@ -1,8 +1,10 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useDb } from '../orders/useDb'
-import { SyncAuthError, SyncNetworkError, type RemoteOrders } from './remote'
+import type { OrderDb } from '../orders/db'
+import { SyncAuthError, SyncNetworkError, type SyncState as RecordSyncState } from './remote'
 import { syncOnce } from './sync'
+import type { SyncTable } from './tables'
 import { SyncContext, type SyncStatus } from './useSync'
 
 const AFTER_SAVE_MS = 3_000
@@ -15,7 +17,7 @@ const RETRY_MS = [30_000, 60_000, 2 * 60_000, 5 * 60_000]
  * 5 minutes. Only one sync runs at a time; requests during a sync re-run it after.
  * Background Sync is not used (not supported everywhere).
  */
-export function SyncProvider({ remote, children }: { remote: RemoteOrders; children: ReactNode }) {
+export function SyncProvider({ tables, children }: { tables: readonly SyncTable[]; children: ReactNode }) {
   const db = useDb()
   const [status, setStatus] = useState<SyncStatus>('idle')
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null)
@@ -42,7 +44,7 @@ export function SyncProvider({ remote, children }: { remote: RemoteOrders; child
     try {
       do {
         rerun.current = false
-        await syncOnce(db, remote)
+        await syncOnce(db, tables)
       } while (rerun.current)
       failures.current = 0
       setStatus('idle')
@@ -61,7 +63,7 @@ export function SyncProvider({ remote, children }: { remote: RemoteOrders; child
     } finally {
       running.current = false
     }
-  }, [db, remote])
+  }, [db, tables])
 
   useEffect(() => {
     syncNowRef.current = syncNow
@@ -89,13 +91,23 @@ export function SyncProvider({ remote, children }: { remote: RemoteOrders; child
   }, [syncNow])
 
   // A few seconds after local changes (debounced, so quick successive edits go together).
-  const waiting = useLiveQuery(() => db.orders.where('synced').equals(0).count(), [db], 0)
+  const waiting = useLiveQuery(() => countInState(db, tables, 0), [db, tables], 0)
+  const rejected = useLiveQuery(() => countInState(db, tables, 2), [db, tables], 0)
   useEffect(() => {
     if (waiting === 0) return
     const timer = setTimeout(() => void syncNow(), AFTER_SAVE_MS)
     return () => clearTimeout(timer)
   }, [waiting, syncNow])
 
-  const value = useMemo(() => ({ status, lastSyncedAt, syncNow: () => void syncNow() }), [status, lastSyncedAt, syncNow])
+  const value = useMemo(
+    () => ({ status, lastSyncedAt, waiting, rejected, syncNow: () => void syncNow() }),
+    [status, lastSyncedAt, waiting, rejected, syncNow],
+  )
   return <SyncContext.Provider value={value}>{children}</SyncContext.Provider>
+}
+
+/** Records across all synced tables in the given sync state. */
+async function countInState(db: OrderDb, tables: readonly SyncTable[], state: RecordSyncState): Promise<number> {
+  const counts = await Promise.all(tables.map((t) => t.local(db).where('synced').equals(state).count()))
+  return counts.reduce((sum, n) => sum + n, 0)
 }

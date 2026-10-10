@@ -11,9 +11,10 @@ import postgres from 'postgres'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { openOrderDb, type OrderDb } from '../orders/db'
 import { createOrder, deleteOrder, getOrder, updateOrder } from '../orders/repository'
-import { SyncAuthError, type RemoteOrders } from './remote'
+import { SyncAuthError } from './remote'
 import { createSupabaseRemote } from './supabaseRemote'
 import { syncOnce } from './sync'
+import { ordersTable, type RemoteOrderRow, type SyncTable } from './tables'
 
 const API_URL = import.meta.env.VITE_SUPABASE_URL
 const KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY
@@ -52,13 +53,14 @@ function signedInClient(): GoTrueClient {
   })
 }
 
-async function device(): Promise<{ db: OrderDb; remote: RemoteOrders }> {
+async function device(): Promise<{ db: OrderDb; tables: SyncTable[] }> {
   const auth = signedInClient()
   const { error } = await auth.signInWithPassword({ email, password })
   if (error) throw error
   const db = openOrderDb(`live-${crypto.randomUUID()}`)
   dbs.push(db)
-  return { db, remote: createSupabaseRemote({ auth, vendorId, url: API_URL, key: KEY }) }
+  const remote = createSupabaseRemote({ auth, vendorId, url: API_URL, key: KEY })
+  return { db, tables: [ordersTable(remote<RemoteOrderRow>('orders'))] }
 }
 
 const serverRow = async (id: string) =>
@@ -97,7 +99,7 @@ describe('live sync with Supabase', () => {
     const order = await createOrder(phone.db, { customer_name: 'Ada', items: '2x gown', amount_due_kobo: 2_500_000 })
 
     const started = Date.now()
-    await syncOnce(phone.db, phone.remote)
+    await syncOnce(phone.db, phone.tables)
     const elapsed = Date.now() - started
 
     const row = await serverRow(order.id)
@@ -115,17 +117,17 @@ describe('live sync with Supabase', () => {
     const phone = await device()
     const laptop = await device()
     const order = await createOrder(phone.db, { customer_name: 'Bayo', items: 'Small chops', amount_due_kobo: 1_850_050 })
-    await syncOnce(phone.db, phone.remote)
-    await syncOnce(laptop.db, laptop.remote)
+    await syncOnce(phone.db, phone.tables)
+    await syncOnce(laptop.db, laptop.tables)
     expect((await getOrder(laptop.db, order.id))?.customer_name).toBe('Bayo')
 
     // Laptop's edit is newer, but the phone sends its older edit last.
     const base = Date.now()
     await updateOrder(laptop.db, order.id, { items: 'laptop edit (newer)' }, new Date(base + 2_000))
     await updateOrder(phone.db, order.id, { items: 'phone edit (older)' }, new Date(base + 1_000))
-    await syncOnce(laptop.db, laptop.remote)
-    await syncOnce(phone.db, phone.remote)
-    await syncOnce(laptop.db, laptop.remote)
+    await syncOnce(laptop.db, laptop.tables)
+    await syncOnce(phone.db, phone.tables)
+    await syncOnce(laptop.db, laptop.tables)
 
     expect((await serverRow(order.id))?.items).toBe('laptop edit (newer)')
     expect((await getOrder(phone.db, order.id))?.items).toBe('laptop edit (newer)')
@@ -137,26 +139,44 @@ describe('live sync with Supabase', () => {
     const phone = await device()
     const laptop = await device()
     const order = await createOrder(phone.db, { customer_name: 'Chi', items: 'Wig', amount_due_kobo: 9_000_000 })
-    await syncOnce(phone.db, phone.remote)
-    await syncOnce(laptop.db, laptop.remote)
+    await syncOnce(phone.db, phone.tables)
+    await syncOnce(laptop.db, laptop.tables)
 
     await deleteOrder(phone.db, order.id)
-    await syncOnce(phone.db, phone.remote)
-    await syncOnce(laptop.db, laptop.remote)
+    await syncOnce(phone.db, phone.tables)
+    await syncOnce(laptop.db, laptop.tables)
 
     expect((await serverRow(order.id))?.deleted_at).toBeInstanceOf(Date)
     expect(await getOrder(laptop.db, order.id)).toBeUndefined()
   })
 
+  it('sets aside a row the real server refuses, and still syncs the others', async () => {
+    const phone = await device()
+    const good = await createOrder(phone.db, { customer_name: 'Dayo', items: 'Shoes', amount_due_kobo: 1_000_000 })
+    // Bypass the app's validation to simulate client/server rules drifting apart:
+    // 201 characters breaks the database's customer_name check (max 200).
+    const bad = await createOrder(phone.db, { customer_name: 'Too long', items: 'Bag', amount_due_kobo: 500_000 })
+    await phone.db.orders.update(bad.id, { customer_name: 'x'.repeat(201) })
+
+    const result = await syncOnce(phone.db, phone.tables)
+
+    expect(result).toMatchObject({ pushed: 1, rejected: 1 })
+    expect((await serverRow(good.id))?.customer_name).toBe('Dayo')
+    expect(await serverRow(bad.id)).toBeUndefined()
+    const stored = await phone.db.orders.get(bad.id)
+    expect(stored?.synced).toBe(2)
+    expect(stored?.sync_error).toMatch(/23514|check constraint/)
+  })
+
   it('refuses to sync when the session belongs to a different vendor', async () => {
     const auth = signedInClient()
     await auth.signInWithPassword({ email, password })
-    const wrong = createSupabaseRemote({ auth, vendorId: crypto.randomUUID(), url: API_URL, key: KEY })
+    const wrong = createSupabaseRemote({ auth, vendorId: crypto.randomUUID(), url: API_URL, key: KEY })<RemoteOrderRow>('orders')
     await expect(wrong.pull(null, 10)).rejects.toBeInstanceOf(SyncAuthError)
   })
 
   it('reports sign-in required when there is no session', async () => {
-    const remote = createSupabaseRemote({ auth: signedInClient(), vendorId, url: API_URL, key: KEY })
+    const remote = createSupabaseRemote({ auth: signedInClient(), vendorId, url: API_URL, key: KEY })<RemoteOrderRow>('orders')
     await expect(remote.pull(null, 10)).rejects.toBeInstanceOf(SyncAuthError)
   })
 })
