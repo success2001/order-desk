@@ -1,4 +1,13 @@
-import { SyncDeferredError, SyncRejectedError, type OutgoingRow, type RemoteRow, type RemoteTable } from './remote'
+import {
+  SyncDeferredError,
+  SyncRejectedError,
+  type DeletionPosition,
+  type DeletionRecord,
+  type OutgoingRow,
+  type RemoteDeletions,
+  type RemoteRow,
+  type RemoteTable,
+} from './remote'
 import type { RemoteOrderRow } from './tables'
 
 /**
@@ -67,5 +76,44 @@ export class FakeRemote<R extends RemoteRow & { created_at: string } = RemoteOrd
   private tick(): string {
     this.clock += 1
     return new Date(this.clock).toISOString()
+  }
+}
+
+/**
+ * In-memory stand-in for public.deleted_records_since, for unit tests. Rows
+ * deleted in one call share a deleted_at, like a cascade or a multi-row delete.
+ */
+export class FakeDeletions implements RemoteDeletions {
+  readonly records: DeletionRecord[] = []
+  calls = 0
+  private clock = Date.parse('2026-10-10T08:30:00.000Z')
+
+  /** Records rows of one table as hard-deleted together (same deleted_at). */
+  record(table: string, ids: string[]): void {
+    this.clock += 1
+    const at = new Date(this.clock).toISOString()
+    for (const id of ids) this.records.push({ table_name: table, record_id: id, deleted_at: at })
+  }
+
+  async since(after: DeletionPosition | null, limit: number): Promise<DeletionRecord[]> {
+    this.calls++
+    const key = (r: { at: string; table: string; id: string }) => [Date.parse(r.at), r.table, r.id] as const
+    const isAfter = (r: DeletionRecord) => {
+      if (!after) return true
+      const [a1, a2, a3] = key({ at: r.deleted_at, table: r.table_name, id: r.record_id })
+      const [b1, b2, b3] = key(after)
+      return a1 !== b1 ? a1 > b1 : a2 !== b2 ? a2 > b2 : a3 > b3
+    }
+    // Plain (byte-wise) comparison, like the server's uuid ordering, and the same as isAfter.
+    const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+    return this.records
+      .filter(isAfter)
+      .sort(
+        (x, y) =>
+          Date.parse(x.deleted_at) - Date.parse(y.deleted_at) ||
+          cmp(x.table_name, y.table_name) ||
+          cmp(x.record_id, y.record_id),
+      )
+      .slice(0, limit)
   }
 }

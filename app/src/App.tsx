@@ -47,12 +47,15 @@ function App() {
 
 function SyncedOrdersApp({ vendorId }: { vendorId: string }) {
   // Synced tables, in push/pull order (tables that others reference come first).
-  const tables = useMemo(() => {
+  const { tables, deletions } = useMemo(() => {
     const remote = createSupabaseRemote({ auth, vendorId, url: SUPABASE_URL, key: SUPABASE_KEY })
-    return [ordersTable(remote<RemoteOrderRow>('orders')), paymentsTable(remote<RemotePaymentRow>('payments'))]
+    return {
+      tables: [ordersTable(remote.table<RemoteOrderRow>('orders')), paymentsTable(remote.table<RemotePaymentRow>('payments'))],
+      deletions: remote.deletions(),
+    }
   }, [vendorId])
   return (
-    <SyncProvider tables={tables}>
+    <SyncProvider tables={tables} deletions={deletions}>
       <OrdersApp />
     </SyncProvider>
   )

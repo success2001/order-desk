@@ -11,7 +11,7 @@ import postgres from 'postgres'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { openOrderDb, type OrderDb } from '../orders/db'
 import { createOrder, deleteOrder, getOrder, setFulfilmentStatus, updateOrder } from '../orders/repository'
-import { SyncAuthError } from './remote'
+import { SyncAuthError, type RemoteDeletions } from './remote'
 import { createSupabaseRemote } from './supabaseRemote'
 import { syncOnce } from './sync'
 import { ordersTable, paymentsTable, type RemoteOrderRow, type RemotePaymentRow, type SyncTable } from './tables'
@@ -54,14 +54,18 @@ function signedInClient(): GoTrueClient {
   })
 }
 
-async function device(): Promise<{ db: OrderDb; tables: SyncTable[] }> {
+async function device(): Promise<{ db: OrderDb; tables: SyncTable[]; deletions: RemoteDeletions }> {
   const auth = signedInClient()
   const { error } = await auth.signInWithPassword({ email, password })
   if (error) throw error
   const db = openOrderDb(`live-${crypto.randomUUID()}`)
   dbs.push(db)
   const remote = createSupabaseRemote({ auth, vendorId, url: API_URL, key: KEY })
-  return { db, tables: [ordersTable(remote<RemoteOrderRow>('orders')), paymentsTable(remote<RemotePaymentRow>('payments'))] }
+  return {
+    db,
+    tables: [ordersTable(remote.table<RemoteOrderRow>('orders')), paymentsTable(remote.table<RemotePaymentRow>('payments'))],
+    deletions: remote.deletions(),
+  }
 }
 
 const serverRow = async (id: string) =>
@@ -257,15 +261,35 @@ describe('live sync with Supabase', () => {
     expect(n).toBe(0)
   })
 
+  it('an order deleted on the server disappears from devices that have it, with its payments', async () => {
+    const phone = await device()
+    const laptop = await device()
+    const order = await createOrder(phone.db, { customer_name: 'Jide', items: 'Kaftan', amount_due_kobo: 3_000_000 })
+    await recordPayment(phone.db, order.id, 1_000_000)
+    await syncOnce(phone.db, phone.tables, phone.deletions)
+    await syncOnce(laptop.db, laptop.tables, laptop.deletions)
+    expect(await getOrder(laptop.db, order.id)).toBeDefined()
+
+    // Hard-deleted on the server (e.g. from the dashboard); the payment goes with it.
+    await sql`delete from public.orders where id = ${order.id}`
+
+    expect((await syncOnce(phone.db, phone.tables, phone.deletions)).removed).toBe(2)
+    expect((await syncOnce(laptop.db, laptop.tables, laptop.deletions)).removed).toBe(2)
+    for (const d of [phone, laptop]) {
+      expect(await d.db.orders.get(order.id)).toBeUndefined()
+      expect(await d.db.payments.where('order_id').equals(order.id).count()).toBe(0)
+    }
+  })
+
   it('refuses to sync when the session belongs to a different vendor', async () => {
     const auth = signedInClient()
     await auth.signInWithPassword({ email, password })
-    const wrong = createSupabaseRemote({ auth, vendorId: crypto.randomUUID(), url: API_URL, key: KEY })<RemoteOrderRow>('orders')
+    const wrong = createSupabaseRemote({ auth, vendorId: crypto.randomUUID(), url: API_URL, key: KEY }).table<RemoteOrderRow>('orders')
     await expect(wrong.pull(null, 10)).rejects.toBeInstanceOf(SyncAuthError)
   })
 
   it('reports sign-in required when there is no session', async () => {
-    const remote = createSupabaseRemote({ auth: signedInClient(), vendorId, url: API_URL, key: KEY })<RemoteOrderRow>('orders')
+    const remote = createSupabaseRemote({ auth: signedInClient(), vendorId, url: API_URL, key: KEY }).table<RemoteOrderRow>('orders')
     await expect(remote.pull(null, 10)).rejects.toBeInstanceOf(SyncAuthError)
   })
 })

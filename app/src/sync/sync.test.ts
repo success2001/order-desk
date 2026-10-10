@@ -3,9 +3,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { openOrderDb, type OrderDb } from '../orders/db'
 import { createOrder, deleteOrder, getOrder, listOrders, setFulfilmentStatus, updateOrder } from '../orders/repository'
 import type { NewOrderInput } from '../orders/types'
-import { FakeRemote } from './fakeRemote'
+import { FakeDeletions, FakeRemote } from './fakeRemote'
 import { SyncNetworkError, SyncRejectedError } from './remote'
-import { PULL_PAGE, cursorKey, pullChanges, pushChanges, syncOnce } from './sync'
+import { PULL_PAGE, applyDeletions, cursorKey, pullChanges, pushChanges, syncOnce } from './sync'
 import { ordersTable, paymentsTable, toRemoteOrder as toRemote, type RemotePaymentRow } from './tables'
 import { paidTotal, recordPayment, voidPayment } from '../payments/repository'
 
@@ -403,5 +403,88 @@ describe('payments', () => {
     expect(await syncAll(phone)).toMatchObject({ pushed: 2, rejected: 0, deferred: 0 })
     expect(payRemote.rows.has(payment.id)).toBe(true)
     expect((await phone.payments.get(payment.id))?.synced).toBe(1)
+  })
+})
+describe('hard deletes on the server', () => {
+  let payRemote: FakeRemote<RemotePaymentRow>
+  let deletions: FakeDeletions
+  const both = () => [ordersTable(remote), paymentsTable(payRemote)]
+
+  beforeEach(() => {
+    payRemote = new FakeRemote<RemotePaymentRow>(['created_at', 'order_id'], { field: 'order_id', rows: remote.rows })
+    deletions = new FakeDeletions()
+  })
+
+  /** Like deleting an order in the dashboard: its payments go with it (cascade). */
+  function deleteOnServer(orderId: string) {
+    const paymentIds = [...payRemote.rows.values()].filter((p) => p.order_id === orderId).map((p) => p.id)
+    remote.rows.delete(orderId)
+    paymentIds.forEach((id) => payRemote.rows.delete(id))
+    deletions.record('orders', [orderId])
+    if (paymentIds.length) deletions.record('payments', paymentIds)
+  }
+
+  it('removes an order and its payments from a device that already has them', async () => {
+    const order = await createOrder(phone, input, T0)
+    await recordPayment(phone, order.id, 1_000_000, {}, at(1_000))
+    await syncOnce(phone, both(), deletions)
+
+    deleteOnServer(order.id)
+    const result = await syncOnce(phone, both(), deletions)
+
+    expect(result.removed).toBe(2)
+    expect(await phone.orders.get(order.id)).toBeUndefined()
+    expect(await phone.payments.count()).toBe(0)
+    expect(await paidTotal(phone, order.id)).toBe(0)
+  })
+
+  it('removes the row even if the device has unsent changes to it (the server would skip them)', async () => {
+    const order = await createOrder(phone, input, T0)
+    await syncOnce(phone, both(), deletions)
+    deleteOnServer(order.id)
+    remote.rejectIds.add(order.id) // stand-in for the server skipping or refusing the edit
+    await updateOrder(phone, order.id, { items: 'edited after deletion' }, at(5_000))
+
+    await syncOnce(phone, both(), deletions)
+
+    expect(await phone.orders.get(order.id)).toBeUndefined()
+  })
+
+  it('does not skip rows deleted together across a page boundary', async () => {
+    const ids: string[] = []
+    for (let i = 0; i < 5; i++) ids.push((await createOrder(phone, { ...input, customer_name: `C${i}` }, at(i))).id)
+    await syncOnce(phone, both(), deletions)
+    ids.forEach((id) => remote.rows.delete(id))
+    deletions.record('orders', ids) // all five share one deleted_at
+
+    const removed = await applyDeletions(phone, both(), deletions, 2) // pages of 2
+
+    expect(removed).toBe(5)
+    expect(await phone.orders.count()).toBe(0)
+  })
+
+  it('remembers where it got to, and re-reading recent deletions is harmless', async () => {
+    const order = await createOrder(phone, input, T0)
+    await syncOnce(phone, both(), deletions)
+    deleteOnServer(order.id)
+    expect(await applyDeletions(phone, both(), deletions)).toBe(1)
+
+    expect(await applyDeletions(phone, both(), deletions)).toBe(0)
+    expect(JSON.parse((await phone.meta.get('deletionsCursor'))!.value)).toMatchObject({ table: 'orders', id: order.id })
+  })
+
+  it('ignores deletions for tables this device does not sync, and of rows it never had', async () => {
+    await createOrder(phone, input, T0)
+    deletions.record('orders', ['never-on-this-phone'])
+    deletions.record('something_else', ['x'])
+
+    expect(await applyDeletions(phone, both(), deletions)).toBe(0)
+    expect(await phone.orders.count()).toBe(1)
+  })
+
+  it('is skipped when no deletion source is given', async () => {
+    await createOrder(phone, input, T0)
+    expect((await syncOnce(phone, both())).removed).toBe(0)
+    expect(deletions.calls).toBe(0)
   })
 })

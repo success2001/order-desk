@@ -1,5 +1,12 @@
 import type { OrderDb } from '../orders/db'
-import { SyncDeferredError, SyncRejectedError, type RemoteRow, type SyncRecord } from './remote'
+import {
+  SyncDeferredError,
+  SyncRejectedError,
+  type DeletionPosition,
+  type RemoteDeletions,
+  type RemoteRow,
+  type SyncRecord,
+} from './remote'
 import type { SyncTable } from './tables'
 
 // Sync rules (BUILD_PLAN.md §3): the device is the source of truth for the
@@ -23,15 +30,22 @@ export interface SyncResult {
   rejected: number
   /** Rows the server can't accept yet (e.g. their order isn't synced); retried on later syncs. */
   deferred: number
+  /** Local rows removed because they were hard-deleted on the server. */
+  removed: number
 }
 
 /**
- * Pushes every table, then pulls every table, in the given order.
+ * Pushes every table, then pulls every table, in the given order, then removes
+ * rows that were hard-deleted on the server (if `deletions` is given).
  * Order matters once tables reference each other (orders before payments).
  * Throws SyncAuthError / SyncNetworkError from the remote.
  */
-export async function syncOnce(db: OrderDb, tables: readonly SyncTable[]): Promise<SyncResult> {
-  const result: SyncResult = { pushed: 0, pulled: 0, rejected: 0, deferred: 0 }
+export async function syncOnce(
+  db: OrderDb,
+  tables: readonly SyncTable[],
+  deletions?: RemoteDeletions,
+): Promise<SyncResult> {
+  const result: SyncResult = { pushed: 0, pulled: 0, rejected: 0, deferred: 0, removed: 0 }
   for (const table of tables) {
     const { confirmed, rejected, deferred } = await pushChanges(db, table)
     result.pushed += confirmed
@@ -39,7 +53,57 @@ export async function syncOnce(db: OrderDb, tables: readonly SyncTable[]): Promi
     result.deferred += deferred
   }
   for (const table of tables) result.pulled += await pullChanges(db, table)
+  if (deletions) result.removed = await applyDeletions(db, tables, deletions)
   return result
+}
+
+export const DELETIONS_PAGE = 500
+const DELETIONS_CURSOR_KEY = 'deletionsCursor'
+const NO_ID = '00000000-0000-0000-0000-000000000000'
+
+/**
+ * Removes local rows that were hard-deleted on the server, including rows with
+ * unsent or rejected changes: the server would skip those changes anyway
+ * (deleted stays deleted, D13). Re-reads PULL_OVERLAP_MS before the saved
+ * position to catch late commits; removing a row twice is harmless.
+ * Returns how many local rows were removed.
+ */
+export async function applyDeletions(
+  db: OrderDb,
+  tables: readonly SyncTable[],
+  deletions: RemoteDeletions,
+  pageSize = DELETIONS_PAGE,
+): Promise<number> {
+  const saved = await db.meta.get(DELETIONS_CURSOR_KEY)
+  const cursor: DeletionPosition | null = saved ? (JSON.parse(saved.value) as DeletionPosition) : null
+  let after: DeletionPosition | null = cursor
+    ? { at: new Date(Date.parse(cursor.at) - PULL_OVERLAP_MS).toISOString(), table: '', id: NO_ID }
+    : null
+  let newest = cursor
+  let removed = 0
+
+  for (let page = 0; page < MAX_ROUNDS; page++) {
+    const rows = await deletions.since(after, pageSize)
+    for (const table of tables) {
+      const ids = rows.filter((r) => r.table_name === table.name).map((r) => r.record_id)
+      if (ids.length === 0) continue
+      const local = table.local(db)
+      removed += await db.transaction('rw', local, async () => {
+        const present = (await local.bulkGet(ids)).filter(Boolean).length
+        await local.bulkDelete(ids)
+        return present
+      })
+    }
+    if (rows.length > 0) {
+      const last = rows[rows.length - 1]
+      after = { at: last.deleted_at, table: last.table_name, id: last.record_id }
+      if (!newest || Date.parse(after.at) >= Date.parse(newest.at)) newest = after
+    }
+    if (rows.length < pageSize) break
+  }
+
+  if (newest && newest !== cursor) await db.meta.put({ key: DELETIONS_CURSOR_KEY, value: JSON.stringify(newest) })
+  return removed
 }
 
 export function cursorKey(table: Pick<SyncTable, 'name'>): string {

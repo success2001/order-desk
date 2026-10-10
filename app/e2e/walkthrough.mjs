@@ -374,6 +374,15 @@ try {
   await page.getByRole('button', { name: 'Dashboard' }).click()
   await page.getByText('Received this month').waitFor()
   await shot('10-dark-dashboard')
+
+  // An order hard-deleted on the server (e.g. from the dashboard) disappears from the device.
+  const adaOnServer = await vendor.serverOrder('Ada Okafor')
+  await sql`delete from public.orders where id = ${adaOnServer.id}` // its payments go with it
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange'))) // app back in foreground: syncs
+  check('order deleted on the server leaves the dashboard', await visible(page.getByText('No orders yet. Your dashboard'), 15_000))
+  await page.getByRole('button', { name: 'Back' }).click()
+  await page.getByLabel('Show delivered and cancelled').check()
+  check('order deleted on the server leaves the list', await gone(page.getByText('Ada Okafor')))
 } catch (err) {
   check('walkthrough completed', false, String(err).split('\n')[0])
   await shot('99-failure').catch(() => {})

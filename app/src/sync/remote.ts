@@ -37,6 +37,27 @@ export interface RemoteTable<R extends RemoteRow> {
   pull(since: string | null, limit: number): Promise<R[]>
 }
 
+/** A row hard-deleted on the server (from private.deleted_records, own vendor only). */
+export interface DeletionRecord {
+  table_name: string
+  record_id: string
+  /** Server time of the deletion. Raw string to keep microseconds. */
+  deleted_at: string
+}
+
+/** Position in the deletion list: rows deleted together share deleted_at, so the table and id break ties. */
+export interface DeletionPosition {
+  at: string
+  table: string
+  id: string
+}
+
+/** Where devices learn about hard deletes. Supabase in the app, an in-memory fake in unit tests. */
+export interface RemoteDeletions {
+  /** Deletions after `after` (exclusive), in (deleted_at, table, id) order, at most `limit`. */
+  since(after: DeletionPosition | null, limit: number): Promise<DeletionRecord[]>
+}
+
 /** The session is missing, expired beyond refresh, or for a different vendor: the vendor must sign in again. */
 export class SyncAuthError extends Error {
   constructor(message = 'Sign in again to sync') {

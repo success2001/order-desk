@@ -5,6 +5,8 @@ import {
   SyncDeferredError,
   SyncNetworkError,
   SyncRejectedError,
+  type DeletionRecord,
+  type RemoteDeletions,
   type RemoteRow,
   type RemoteTable,
 } from './remote'
@@ -17,7 +19,7 @@ interface Options {
   key: string
 }
 
-/** Gives RemoteTables backed by Supabase (PostgREST), authenticated as the signed-in vendor. */
+/** RemoteTables and RemoteDeletions backed by Supabase (PostgREST), authenticated as the signed-in vendor. */
 export function createSupabaseRemote({ auth, vendorId, url, key }: Options) {
   async function client(): Promise<PostgrestClient> {
     const { data, error } = await auth.getSession()
@@ -49,7 +51,24 @@ export function createSupabaseRemote({ auth, vendorId, url, key }: Options) {
     throw new Error(`Sync failed (${status} ${error.code ?? ''}): ${error.message}`)
   }
 
-  return function table<R extends RemoteRow>(name: string): RemoteTable<R> {
+  /** This vendor's hard deletes, via public.deleted_records_since. */
+  function deletions(): RemoteDeletions {
+    return {
+      async since(after, limit) {
+        const db = await client()
+        const result = await db.rpc('deleted_records_since', {
+          p_after_at: after?.at ?? null,
+          p_after_table: after?.table ?? null,
+          p_after_id: after?.id ?? null,
+          p_limit: limit,
+        })
+        check(result)
+        return (result.data ?? []) as DeletionRecord[]
+      },
+    }
+  }
+
+  function table<R extends RemoteRow>(name: string): RemoteTable<R> {
     return {
       async push(rows) {
         const db = await client()
@@ -68,4 +87,6 @@ export function createSupabaseRemote({ auth, vendorId, url, key }: Options) {
       },
     }
   }
+
+  return { table, deletions }
 }

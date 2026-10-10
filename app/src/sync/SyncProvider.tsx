@@ -2,7 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useDb } from '../orders/useDb'
 import type { OrderDb } from '../orders/db'
-import { SyncAuthError, SyncNetworkError, type SyncState as RecordSyncState } from './remote'
+import { SyncAuthError, SyncNetworkError, type RemoteDeletions, type SyncState as RecordSyncState } from './remote'
 import { syncOnce } from './sync'
 import type { SyncTable } from './tables'
 import { SyncContext, type SyncStatus } from './useSync'
@@ -17,7 +17,16 @@ const RETRY_MS = [30_000, 60_000, 2 * 60_000, 5 * 60_000]
  * 5 minutes. Only one sync runs at a time; requests during a sync re-run it after.
  * Background Sync is not used (not supported everywhere).
  */
-export function SyncProvider({ tables, children }: { tables: readonly SyncTable[]; children: ReactNode }) {
+export function SyncProvider({
+  tables,
+  deletions,
+  children,
+}: {
+  tables: readonly SyncTable[]
+  /** Where hard deletes on the server come from; removed locally after each sync. */
+  deletions?: RemoteDeletions
+  children: ReactNode
+}) {
   const db = useDb()
   const [status, setStatus] = useState<SyncStatus>('idle')
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null)
@@ -44,7 +53,7 @@ export function SyncProvider({ tables, children }: { tables: readonly SyncTable[
     try {
       do {
         rerun.current = false
-        await syncOnce(db, tables)
+        await syncOnce(db, tables, deletions)
       } while (rerun.current)
       failures.current = 0
       setStatus('idle')
@@ -63,7 +72,7 @@ export function SyncProvider({ tables, children }: { tables: readonly SyncTable[
     } finally {
       running.current = false
     }
-  }, [db, tables])
+  }, [db, tables, deletions])
 
   useEffect(() => {
     syncNowRef.current = syncNow
