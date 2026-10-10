@@ -73,6 +73,31 @@ describe('createOrder', () => {
     expect(await db.orders.count()).toBe(0)
   })
 
+  it('stores the delivery address on its own, trimmed; blank is stored as null', async () => {
+    const withAddress = await createOrder(db, { ...input, delivery_address: '  12 Allen Avenue, Ikeja  ' }, T0)
+    expect(withAddress.delivery_address).toBe('12 Allen Avenue, Ikeja')
+    expect((await createOrder(db, { ...input, delivery_address: '   ' }, T0)).delivery_address).toBeNull()
+    expect((await createOrder(db, input, T0)).delivery_address).toBeNull()
+  })
+
+  it('rejects a delivery address over 500 characters', async () => {
+    const error = await createOrder(db, { ...input, delivery_address: 'a'.repeat(501) }, T0).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(OrderValidationError)
+    expect(Object.keys((error as OrderValidationError).errors)).toEqual(['delivery_address'])
+  })
+
+  it('accepts X as where the order came from', async () => {
+    expect((await createOrder(db, { ...input, channel: 'x' }, T0)).channel).toBe('x')
+  })
+
+  it('updates an order saved before delivery_address existed', async () => {
+    const order = await createOrder(db, input, T0)
+    const { delivery_address: _removed, ...legacy } = order
+    await db.orders.put(legacy as typeof order) // as stored by an older app version
+    const updated = await updateOrder(db, order.id, { delivery_address: 'Lekki Phase 1' }, later(1))
+    expect(updated.delivery_address).toBe('Lekki Phase 1')
+  })
+
   it('rejects fractional kobo', async () => {
     await expect(createOrder(db, { ...input, amount_due_kobo: 100.5 }, T0)).rejects.toBeInstanceOf(
       OrderValidationError,

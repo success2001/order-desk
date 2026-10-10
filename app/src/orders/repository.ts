@@ -35,6 +35,7 @@ export async function createOrder(db: OrderDb, input: NewOrderInput, now = new D
     amount_due_kobo: input.amount_due_kobo,
     fulfilment_status: input.fulfilment_status ?? 'pending',
     delivered_at: deliveredAt(null, input.fulfilment_status ?? 'pending', timestamp),
+    delivery_address: input.delivery_address ?? null,
     notes: input.notes ?? null,
     created_at: timestamp,
     updated_at: timestamp,
@@ -145,6 +146,8 @@ function normalise(order: Order): Order {
     customer_name: order.customer_name.trim(),
     customer_phone: order.customer_phone?.trim() || null,
     items: order.items.trim(),
+    // ?. as well: orders saved before this field existed don't have it.
+    delivery_address: order.delivery_address?.trim() || null,
     notes: order.notes?.trim() || null,
   }
 }

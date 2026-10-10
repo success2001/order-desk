@@ -3,7 +3,7 @@
 
 import type { SyncRecord, SyncState } from '../sync/remote'
 
-export const CHANNELS = ['whatsapp', 'instagram', 'other'] as const
+export const CHANNELS = ['whatsapp', 'instagram', 'x', 'other'] as const
 export type Channel = (typeof CHANNELS)[number]
 
 export const FULFILMENT_STATUSES = ['pending', 'dispatched', 'delivered', 'cancelled'] as const
@@ -24,6 +24,8 @@ export interface Order extends SyncRecord {
    * Managed by the repository (deliveredAt), never set directly.
    */
   delivered_at: string | null
+  /** Where to deliver; optional. Up to 500 characters. */
+  delivery_address: string | null
   notes: string | null
   /** ISO 8601, device clock. */
   created_at: string
@@ -45,6 +47,7 @@ export interface NewOrderInput {
   items: string
   amount_due_kobo: number
   fulfilment_status?: FulfilmentStatus
+  delivery_address?: string | null
   notes?: string | null
 }
 

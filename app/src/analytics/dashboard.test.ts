@@ -18,6 +18,7 @@ function order(overrides: Partial<Order> = {}): Order {
     amount_due_kobo: 1_000_000,
     fulfilment_status: 'pending',
     delivered_at: null,
+    delivery_address: null,
     notes: null,
     created_at: created,
     updated_at: created,

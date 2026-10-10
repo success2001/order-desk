@@ -99,7 +99,8 @@ try {
     }
     check('service worker controls page', await page.evaluate(() => !!navigator.serviceWorker.controller))
   }
-  check('banner: all changes backed up', await visible(page.getByText('All changes backed up'), 10_000))
+  // The backup banner is hidden while everything is backed up.
+  check('no banner when all changes are backed up', await gone(page.locator('.sync'), 10_000))
   const dbNames = await waitFor(async () => {
     const names = await page.evaluate(async () => (await indexedDB.databases()).map((d) => d.name))
     return names.some((n) => n.startsWith('orders-')) ? null : names
@@ -123,6 +124,7 @@ try {
   // Create: saved on the phone, then reaches Supabase automatically.
   await page.getByLabel('Customer name').fill('Ada Okafor')
   await page.getByLabel('What did they order?').fill('2x Ankara gown (L)')
+  await page.getByLabel('Delivery address (optional)').fill('12 Allen Avenue, Ikeja')
   await page.getByLabel('Amount (₦)').fill('₦25,000')
   await page.getByRole('button', { name: 'Instagram' }).click()
   const savedAt = Date.now()
@@ -132,7 +134,8 @@ try {
   const created = await waitFor(() => vendor.serverOrder('Ada Okafor'))
   check('order reached Supabase automatically', created, created ? `${Date.now() - savedAt} ms after save` : 'not found')
   check('server row has amount in kobo and channel', created && Number(created.amount_due_kobo) === 2_500_000 && created.channel === 'instagram')
-  check('banner returns to all backed up', await visible(page.getByText('All changes backed up'), 10_000))
+  check('delivery address stored in its own field', created?.delivery_address === '12 Allen Avenue, Ikeja' && created?.notes === null)
+  check('banner hidden again once backed up', await gone(page.locator('.sync'), 10_000))
   await shot('03-list-one-order')
 
   // Part payment.
@@ -147,6 +150,10 @@ try {
   await page.getByRole('button', { name: 'Save payment' }).click()
   await page.getByText('Part-paid').waitFor()
   check('part payment leaves ₦15,000 owed', (await page.locator('dd.owed').textContent()) === '₦15,000')
+  check(
+    'delivery address shown on the order',
+    (await visible(page.getByRole('heading', { name: 'Delivery address' }))) && (await visible(page.getByText('12 Allen Avenue, Ikeja'))),
+  )
   check(
     'payment shown in history with its method',
     await visible(page.getByRole('list', { name: 'Payments received' }).getByText(/Today, .* · Bank transfer/)),
@@ -273,6 +280,7 @@ try {
   )
   await page.getByLabel('Customer name').fill('Bayo')
   await page.getByLabel('What did they order?').fill('Small chops for 20')
+  await page.getByRole('button', { name: 'X', exact: true }).click()
   await page.getByLabel('Amount (₦)').fill('18500.50')
   await page.getByText('More details (optional)').click()
   await page.getByLabel('Amount already paid (₦)').fill('5,000')
@@ -288,6 +296,7 @@ try {
   await context.setOffline(false)
   const bayo = await waitFor(() => vendor.serverOrder('Bayo'))
   check('offline order synced when connection returned', bayo)
+  check('order from X stored with channel x', bayo?.channel === 'x', bayo?.channel)
   check('amount stored exactly in kobo', Number(bayo?.amount_due_kobo) === 1_850_050)
   check(
     'first payment from the new-order form synced',
@@ -296,7 +305,7 @@ try {
       return paid.total === 500_000 && paid.payments === 1
     }),
   )
-  check('banner back to all backed up', await visible(page.getByText('All changes backed up'), 10_000))
+  check('banner hidden again after syncing the offline order', await gone(page.locator('.sync'), 10_000))
 
   // Back button, then delete (synced as a soft delete).
   await page.getByText('Bayo').click()

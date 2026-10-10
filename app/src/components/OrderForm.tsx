@@ -40,6 +40,7 @@ export function OrderForm({ order }: { order?: Order }) {
   const [customerPhone, setCustomerPhone] = useState(order?.customer_phone ?? '')
   // New orders only: becomes the order's first payment. Edits manage payments on the order screen.
   const [amountPaid, setAmountPaid] = useState('')
+  const [deliveryAddress, setDeliveryAddress] = useState(order?.delivery_address ?? '')
   const [notes, setNotes] = useState(order?.notes ?? '')
   const [errors, setErrors] = useState<FormErrors>({})
   const [saving, setSaving] = useState(false)
@@ -65,6 +66,7 @@ export function OrderForm({ order }: { order?: Order }) {
       amount_due_kobo: due,
       channel,
       customer_phone: customerPhone,
+      delivery_address: deliveryAddress,
       notes,
     }
 
@@ -102,6 +104,17 @@ export function OrderForm({ order }: { order?: Order }) {
           rows={2}
           placeholder="e.g. 2× Ankara gown (L)"
           maxLength={2000}
+        />
+      </Field>
+
+      <Field label="Delivery address (optional)" error={errors.delivery_address}>
+        <textarea
+          value={deliveryAddress}
+          onChange={(e) => setDeliveryAddress(e.target.value)}
+          rows={2}
+          placeholder="e.g. 12 Allen Avenue, Ikeja"
+          autoComplete="off"
+          maxLength={500}
         />
       </Field>
 
@@ -158,7 +171,7 @@ export function OrderForm({ order }: { order?: Order }) {
           />
         </Field>
 
-        <Field label="Notes (address, landmark, delivery time…)" error={errors.notes}>
+        <Field label="Notes (landmark, delivery time…)" error={errors.notes}>
           <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} maxLength={2000} />
         </Field>
       </details>

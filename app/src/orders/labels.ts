@@ -3,6 +3,7 @@ import type { Channel, FulfilmentStatus, PaymentStatus } from './types'
 export const CHANNEL_LABELS: Record<Channel, string> = {
   whatsapp: 'WhatsApp',
   instagram: 'Instagram',
+  x: 'X',
   other: 'Other',
 }
 

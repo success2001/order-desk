@@ -153,6 +153,16 @@ describe('pull', () => {
     expect((await phone.orders.get(order.id))?.updated_at).toBe('2026-10-10T09:00:05.123Z')
   })
 
+  it('sends and receives the delivery address and X channel', async () => {
+    const other = device()
+    const order = await createOrder(other, { ...input, channel: 'x', delivery_address: '12 Allen Avenue, Ikeja' }, T0)
+    await sync(other)
+    expect(remote.rows.get(order.id)).toMatchObject({ channel: 'x', delivery_address: '12 Allen Avenue, Ikeja' })
+
+    await pull(phone)
+    expect(await phone.orders.get(order.id)).toMatchObject({ channel: 'x', delivery_address: '12 Allen Avenue, Ikeja' })
+  })
+
   it('sends and receives delivered_at', async () => {
     const other = device()
     const order = await createOrder(other, input, T0)

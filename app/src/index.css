@@ -696,14 +696,17 @@ p {
   font-size: 0.9rem;
 }
 
+/* Four order sources in one row on a phone; tighter padding so 'Instagram' fits. */
 .segmented {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 0.4rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.35rem;
 }
 
 .segmented__option {
   min-height: var(--tap);
+  padding: 0 0.2rem;
+  font-size: 0.95rem;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);

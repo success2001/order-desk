@@ -54,6 +54,12 @@ export function OrderDetail({ order }: { order: Order }) {
       <section className="card">
         <h3>Items</h3>
         <p className="prewrap">{order.items}</p>
+        {order.delivery_address && (
+          <>
+            <h3>Delivery address</h3>
+            <p className="prewrap">{order.delivery_address}</p>
+          </>
+        )}
         {order.notes && (
           <>
             <h3>Notes</h3>

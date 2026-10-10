@@ -11,6 +11,7 @@ export type OrderFields = Pick<
   | 'items'
   | 'amount_due_kobo'
   | 'fulfilment_status'
+  | 'delivery_address'
   | 'notes'
 >
 
@@ -34,6 +35,10 @@ export function validateOrder(o: OrderFields): ValidationErrors {
   if (!isAmount(o.amount_due_kobo)) errors.amount_due_kobo = 'Enter a valid amount.'
 
   if (!FULFILMENT_STATUSES.includes(o.fulfilment_status)) errors.fulfilment_status = 'Unknown delivery status.'
+
+  if (o.delivery_address && o.delivery_address.length > 500) {
+    errors.delivery_address = 'Address is too long (max 500 characters).'
+  }
 
   if (o.notes && o.notes.length > 2000) errors.notes = 'Notes are too long (max 2000 characters).'
 

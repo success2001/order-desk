@@ -99,6 +99,25 @@ begin
   exception when check_violation then null;
   end;
 
+  -- 10d. Orders can come from X, and the delivery address is stored on its own.
+  update public.orders
+     set channel = 'x', delivery_address = '12 Allen Avenue, Ikeja', updated_at = now() + interval '3 minutes'
+   where id = order_a;
+  select * into rec from public.orders where id = order_a;
+  if rec.channel <> 'x' or rec.delivery_address is distinct from '12 Allen Avenue, Ikeja' then
+    raise exception 'FAIL 10d: X channel or delivery address not saved';
+  end if;
+  begin
+    insert into public.orders (customer_name, items, amount_due_kobo, channel) values ('Bad', 'x', 1, 'tiktok');
+    raise exception 'FAIL 10e: unknown channel accepted';
+  exception when check_violation then null;
+  end;
+  begin
+    insert into public.orders (customer_name, items, amount_due_kobo, delivery_address) values ('Bad', 'x', 1, repeat('a', 501));
+    raise exception 'FAIL 10f: delivery address over 500 characters accepted';
+  exception when check_violation then null;
+  end;
+
   -- ===== Signed in as vendor B =====
   perform set_config('request.jwt.claims', json_build_object('sub', vendor_b, 'role', 'authenticated')::text, true);
 
