@@ -59,6 +59,9 @@ export function OrdersList() {
         </ul>
       )}
 
+      <button type="button" className="fab fab--left" onClick={() => navigate('/how-to')}>
+        How to use
+      </button>
       <button type="button" className="fab" onClick={() => navigate('/new')}>
         + New order
       </button>

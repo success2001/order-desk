@@ -577,6 +577,15 @@ p {
   cursor: pointer;
 }
 
+.fab--left {
+  right: auto;
+  left: max(1rem, calc((100vw - 40rem) / 2 + 1rem));
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+}
+
 .actions {
   display: flex;
   flex-wrap: wrap;
