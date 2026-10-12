@@ -1,6 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useState, type ReactNode } from 'react'
-import { downloadCsv, trendCsv } from '../analytics/csv'
+import { downloadTrendReport } from '../analytics/excel'
 import { clampTrendRange, computeDashboard, percentChange, type Dashboard, type TrendRange } from '../analytics/dashboard'
 import { formatDayRange, formatNairaCompact, formatWeekday } from '../analytics/format'
 import { addDays, isDayKey, lagosDay, type DayKey } from '../analytics/time'
@@ -96,7 +96,7 @@ function DashboardView({
   }
 
   function download() {
-    downloadCsv(`report-${trendStart}-to-${trendEnd}.csv`, trendCsv(d.trend))
+    void downloadTrendReport(`report-${trendStart}-to-${trendEnd}.xlsx`, d.trend)
   }
 
   return (
@@ -156,7 +156,7 @@ function DashboardView({
           </div>
         )}
         <button type="button" className="button" onClick={download}>
-          Download CSV
+          Download Report
         </button>
       </section>
 
