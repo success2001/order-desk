@@ -43,6 +43,8 @@ export interface TrendPoint {
   orders: number
   revenueKobo: number
   delivered: number
+  /** Still owed now on orders created that day. Cancelled, deleted and overpayments add nothing. */
+  pendingKobo: number
 }
 
 /** The last TREND_DAYS Lagos days, ending on `today`. */
@@ -131,11 +133,21 @@ export function computeDashboard(
     }
   }
 
+  function pendingForDay(day: DayKey): number {
+    let owed = 0
+    for (const o of received) {
+      if (!inDays(o.created_at, day, day)) continue
+      const balance = o.amount_due_kobo - paidFor(o)
+      if (balance > 0) owed += balance
+    }
+    return owed
+  }
+
   const trendRange = resolveTrendRange(today, range)
   const trend: TrendPoint[] = []
   for (let day = trendRange.first; day <= trendRange.last; day = addDays(day, 1)) {
     const f = figures(day, day)
-    trend.push({ day, orders: f.orders, revenueKobo: f.revenueKobo, delivered: f.delivered })
+    trend.push({ day, orders: f.orders, revenueKobo: f.revenueKobo, delivered: f.delivered, pendingKobo: pendingForDay(day) })
   }
 
   const thisMonthsOrders = orders.filter((o) => inDays(o.created_at, firstOfMonth, today))

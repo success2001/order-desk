@@ -179,10 +179,33 @@ describe('computeDashboard', () => {
     const o = order({ created_at: '2026-10-08T09:00:00.000Z' })
     const d = computeDashboard([o], [payment(o, 250_000, '2026-10-09T09:00:00.000Z')], NOW)
     expect(d.trend.slice(-3)).toEqual([
-      { day: '2026-10-08', orders: 1, revenueKobo: 0, delivered: 0 },
-      { day: '2026-10-09', orders: 0, revenueKobo: 250_000, delivered: 0 },
-      { day: '2026-10-10', orders: 0, revenueKobo: 0, delivered: 0 },
+      { day: '2026-10-08', orders: 1, revenueKobo: 0, delivered: 0, pendingKobo: 750_000 },
+      { day: '2026-10-09', orders: 0, revenueKobo: 250_000, delivered: 0, pendingKobo: 0 },
+      { day: '2026-10-10', orders: 0, revenueKobo: 0, delivered: 0, pendingKobo: 0 },
     ])
+  })
+
+  it('puts what is still owed on the day the order was created', () => {
+    const partPaid = order({ created_at: '2026-10-08T09:00:00.000Z', amount_due_kobo: 1_000_000 })
+    const paidOff = order({ created_at: '2026-10-08T10:00:00.000Z', amount_due_kobo: 200_000 })
+    const overpaid = order({ created_at: '2026-10-09T09:00:00.000Z', amount_due_kobo: 100_000 })
+    const d = computeDashboard(
+      [
+        partPaid,
+        paidOff,
+        overpaid,
+        order({ created_at: '2026-10-08T11:00:00.000Z', fulfilment_status: 'cancelled', amount_due_kobo: 500_000 }),
+        order({ created_at: '2026-10-08T12:00:00.000Z', deleted_at: '2026-10-08T13:00:00.000Z', amount_due_kobo: 500_000 }),
+      ],
+      [
+        payment(partPaid, 400_000, '2026-10-10T09:00:00.000Z'),
+        payment(paidOff, 200_000, '2026-10-08T10:00:00.000Z'),
+        payment(overpaid, 300_000, '2026-10-09T09:00:00.000Z'),
+      ],
+      NOW,
+      { first: '2026-10-08', last: '2026-10-09' },
+    )
+    expect(d.trend.map((t) => t.pendingKobo)).toEqual([600_000, 0])
   })
 
   it('builds the trend for a chosen range, including deliveries', () => {
@@ -194,9 +217,9 @@ describe('computeDashboard', () => {
     const paid = payment(o, 250_000, '2026-10-03T09:00:00.000Z')
     const d = computeDashboard([o], [paid], NOW, { first: '2026-10-01', last: '2026-10-03' })
     expect(d.trend).toEqual([
-      { day: '2026-10-01', orders: 1, revenueKobo: 0, delivered: 0 },
-      { day: '2026-10-02', orders: 0, revenueKobo: 0, delivered: 1 },
-      { day: '2026-10-03', orders: 0, revenueKobo: 250_000, delivered: 0 },
+      { day: '2026-10-01', orders: 1, revenueKobo: 0, delivered: 0, pendingKobo: 750_000 },
+      { day: '2026-10-02', orders: 0, revenueKobo: 0, delivered: 1, pendingKobo: 0 },
+      { day: '2026-10-03', orders: 0, revenueKobo: 250_000, delivered: 0, pendingKobo: 0 },
     ])
     expect(d.monthFigures).toEqual(computeDashboard([o], [paid], NOW).monthFigures)
   })

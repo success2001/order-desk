@@ -20,8 +20,8 @@ async function workbookXml(trend: readonly TrendPoint[]): Promise<Record<string,
 describe('trendSheet', () => {
   it('writes dates as yyyy-mm-dd in a column wide enough to show them, and revenue in naira', async () => {
     const trend: TrendPoint[] = [
-      { day: '2026-10-08', orders: 1, revenueKobo: 0, delivered: 0 },
-      { day: '2026-10-09', orders: 0, revenueKobo: 250_050, delivered: 1 },
+      { day: '2026-10-08', orders: 1, revenueKobo: 0, delivered: 0, pendingKobo: 150_000 },
+      { day: '2026-10-09', orders: 0, revenueKobo: 250_050, delivered: 1, pendingKobo: 0 },
     ]
     const xml = await workbookXml(trend)
     const sheet = xml['xl/worksheets/sheet1.xml']
@@ -30,18 +30,23 @@ describe('trendSheet', () => {
 
     expect(strings).toContain('date')
     expect(strings).toContain('revenue_naira')
+    expect(strings).toContain('pending payments')
+    expect(strings).toContain('Total')
     expect(sheet).toContain('min="1" max="1" width="14"')
     expect(sheet).toContain('min="3" max="3" width="16"')
+    expect(sheet).toContain('min="5" max="5" width="20"')
     expect(sheet).toContain(`<v>${excelSerial('2026-10-08')}</v>`)
     expect(sheet).toContain(`<v>${excelSerial('2026-10-09')}</v>`)
-    expect(sheet).toContain('<v>2500.5</v>')
+    expect(sheet.match(/<v>2500\.5<\/v>/g)).toHaveLength(2)
+    expect(sheet.match(/<v>1500<\/v>/g)).toHaveLength(2)
     expect(styles).toContain('yyyy-mm-dd')
     expect(styles).toContain('0.00')
   })
 
-  it('is just the header when the range is empty', async () => {
+  it('is a header and a zero total when the range is empty', async () => {
     const xml = await workbookXml([])
-    expect(xml['xl/sharedStrings.xml']).toContain('delivered')
-    expect(xml['xl/worksheets/sheet1.xml'].match(/<row /g)).toHaveLength(1)
+    const sheet = xml['xl/worksheets/sheet1.xml']
+    expect(xml['xl/sharedStrings.xml']).toContain('Total')
+    expect(sheet.match(/<row /g)).toHaveLength(2)
   })
 })
