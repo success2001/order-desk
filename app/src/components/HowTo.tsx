@@ -32,7 +32,7 @@ export function HowTo({ onDone }: { onDone: () => void }) {
         </li>
         <li>
           <p>
-            <strong>Dashboard</strong> shows what you received. Choose the days, then tap <strong>Download Excel</strong>.
+            <strong>Dashboard</strong> shows what you received. Choose the days, then tap <strong>Download sales Report</strong>.
           </p>
         </li>
       </ol>
