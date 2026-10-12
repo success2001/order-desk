@@ -1,11 +1,28 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useState, type ReactNode } from 'react'
-import { computeDashboard, percentChange, type Dashboard } from '../analytics/dashboard'
+import { downloadCsv, trendCsv } from '../analytics/csv'
+import { clampTrendRange, computeDashboard, percentChange, type Dashboard, type TrendRange } from '../analytics/dashboard'
 import { formatDayRange, formatNairaCompact, formatWeekday } from '../analytics/format'
+import { addDays, isDayKey, lagosDay, type DayKey } from '../analytics/time'
 import { FULFILMENT_LABELS, PAYMENT_LABELS } from '../orders/labels'
 import { formatKobo } from '../orders/money'
 import { useDb } from '../orders/useDb'
 import { BreakdownBars, ColumnChart } from './charts'
+
+const PRESETS = [
+  { id: '7', label: '7 days' },
+  { id: '14', label: '14 days' },
+  { id: '30', label: '30 days' },
+  { id: 'month', label: 'This month' },
+  { id: 'custom', label: 'Custom' },
+] as const
+
+type PresetId = (typeof PRESETS)[number]['id']
+
+function presetRange(preset: Exclude<PresetId, 'custom'>, today: DayKey): TrendRange {
+  if (preset === 'month') return { first: `${today.slice(0, 7)}-01`, last: today }
+  return { first: addDays(today, 1 - Number(preset)), last: today }
+}
 
 /** Re-renders every minute so "today" and "this month" roll over at Lagos midnight. */
 function useMinuteClock(): Date {
@@ -21,9 +38,13 @@ export function DashboardPage() {
   const db = useDb()
   const now = useMinuteClock()
   const minute = Math.floor(now.getTime() / 60_000)
+  const today = lagosDay(new Date(minute * 60_000))
+  const [preset, setPreset] = useState<PresetId>('14')
+  const [custom, setCustom] = useState<TrendRange>(() => presetRange('14', lagosDay(new Date())))
+  const range = clampTrendRange(preset === 'custom' ? custom : presetRange(preset, today), today)
   const dashboard = useLiveQuery(
-    async () => computeDashboard(await db.orders.toArray(), await db.payments.toArray(), new Date(minute * 60_000)),
-    [db, minute],
+    async () => computeDashboard(await db.orders.toArray(), await db.payments.toArray(), new Date(minute * 60_000), range),
+    [db, minute, range.first, range.last],
   )
   const hasOrders = useLiveQuery(async () => (await db.orders.filter((o) => !o.deleted_at).count()) > 0, [db])
 
@@ -33,11 +54,50 @@ export function DashboardPage() {
       <p className="empty">No orders yet. Your dashboard fills in as you record orders and payments.</p>
     )
   }
-  return <DashboardView d={dashboard} />
+  return (
+    <DashboardView
+      d={dashboard}
+      preset={preset}
+      range={range}
+      today={today}
+      onPreset={(next) => {
+        if (next === 'custom') setCustom(range)
+        setPreset(next)
+      }}
+      onCustom={(next) => setCustom(clampTrendRange(next, today))}
+    />
+  )
 }
 
-function DashboardView({ d }: { d: Dashboard }) {
+function DashboardView({
+  d,
+  preset,
+  range,
+  today,
+  onPreset,
+  onCustom,
+}: {
+  d: Dashboard
+  preset: PresetId
+  range: TrendRange
+  today: DayKey
+  onPreset: (preset: PresetId) => void
+  onCustom: (range: TrendRange) => void
+}) {
   const lastMonthRange = formatDayRange(d.lastMonthToDate.firstDay, d.lastMonthToDate.lastDay)
+  const trendStart = d.trend[0].day
+  const trendEnd = d.trend[d.trend.length - 1].day
+  const trendLabel = formatDayRange(trendStart, trendEnd)
+  const labelEvery = Math.max(1, Math.ceil(d.trend.length / 4))
+
+  function setDay(which: 'first' | 'last', value: string) {
+    if (!isDayKey(value)) return
+    onCustom({ ...range, [which]: value })
+  }
+
+  function download() {
+    downloadCsv(`report-${trendStart}-to-${trendEnd}.csv`, trendCsv(d.trend))
+  }
 
   return (
     <div className="dashboard">
@@ -68,9 +128,41 @@ function DashboardView({ d }: { d: Dashboard }) {
         </Tile>
       </section>
 
+      <section className="card report-range">
+        <h3>Daily report</h3>
+        <div className="report-range__presets" role="group" aria-label="Daily report period">
+          {PRESETS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={preset === item.id ? 'segmented__option is-selected' : 'segmented__option'}
+              aria-pressed={preset === item.id}
+              onClick={() => onPreset(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+        {preset === 'custom' && (
+          <div className="report-range__dates">
+            <label className="field">
+              <span className="field__label">From</span>
+              <input type="date" value={range.first} max={today} onChange={(e) => setDay('first', e.target.value)} />
+            </label>
+            <label className="field">
+              <span className="field__label">To</span>
+              <input type="date" value={range.last} max={today} onChange={(e) => setDay('last', e.target.value)} />
+            </label>
+          </div>
+        )}
+        <button type="button" className="button" onClick={download}>
+          Download CSV
+        </button>
+      </section>
+
       <section className="card">
         <ColumnChart
-          title="Orders per day, last 14 days"
+          title={`Orders per day, ${trendLabel}`}
           data={d.trend.map((t) => ({
             key: t.day,
             label: formatWeekday(t.day),
@@ -78,14 +170,14 @@ function DashboardView({ d }: { d: Dashboard }) {
             display: `${t.orders} ${t.orders === 1 ? 'order' : 'orders'}`,
           }))}
           formatTick={(v) => String(v)}
-          labelEvery={4}
+          labelEvery={labelEvery}
           wholeNumbers
         />
       </section>
 
       <section className="card">
         <ColumnChart
-          title="Money received per day, last 14 days"
+          title={`Money received per day, ${trendLabel}`}
           data={d.trend.map((t) => ({
             key: t.day,
             label: formatWeekday(t.day),
@@ -93,7 +185,7 @@ function DashboardView({ d }: { d: Dashboard }) {
             display: formatKobo(t.revenueKobo),
           }))}
           formatTick={(v) => formatNairaCompact(v)}
-          labelEvery={4}
+          labelEvery={labelEvery}
         />
       </section>
 

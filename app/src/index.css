@@ -206,6 +206,33 @@ p {
   text-align: center;
 }
 
+.report-range {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.report-range__presets {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(6.5rem, 1fr));
+  gap: 0.35rem;
+}
+
+.report-range__presets .segmented__option {
+  padding: 0 0.4rem;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.report-range__dates {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 0.75rem;
+}
+
+.report-range .button {
+  width: 100%;
+}
+
 .chart {
   margin: 0;
 }

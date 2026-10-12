@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { Order } from '../orders/types'
 import type { Payment } from '../payments/types'
-import { TREND_DAYS, computeDashboard, percentChange } from './dashboard'
+import { MAX_TREND_DAYS, TREND_DAYS, computeDashboard, percentChange } from './dashboard'
+import { addDays } from './time'
 
 // 10 Oct 2026, 3:00 pm in Lagos.
 const NOW = new Date('2026-10-10T14:00:00.000Z')
@@ -178,10 +179,44 @@ describe('computeDashboard', () => {
     const o = order({ created_at: '2026-10-08T09:00:00.000Z' })
     const d = computeDashboard([o], [payment(o, 250_000, '2026-10-09T09:00:00.000Z')], NOW)
     expect(d.trend.slice(-3)).toEqual([
-      { day: '2026-10-08', orders: 1, revenueKobo: 0 },
-      { day: '2026-10-09', orders: 0, revenueKobo: 250_000 },
-      { day: '2026-10-10', orders: 0, revenueKobo: 0 },
+      { day: '2026-10-08', orders: 1, revenueKobo: 0, delivered: 0 },
+      { day: '2026-10-09', orders: 0, revenueKobo: 250_000, delivered: 0 },
+      { day: '2026-10-10', orders: 0, revenueKobo: 0, delivered: 0 },
     ])
+  })
+
+  it('builds the trend for a chosen range, including deliveries', () => {
+    const o = order({
+      created_at: '2026-10-01T09:00:00.000Z',
+      fulfilment_status: 'delivered',
+      delivered_at: '2026-10-02T09:00:00.000Z',
+    })
+    const paid = payment(o, 250_000, '2026-10-03T09:00:00.000Z')
+    const d = computeDashboard([o], [paid], NOW, { first: '2026-10-01', last: '2026-10-03' })
+    expect(d.trend).toEqual([
+      { day: '2026-10-01', orders: 1, revenueKobo: 0, delivered: 0 },
+      { day: '2026-10-02', orders: 0, revenueKobo: 0, delivered: 1 },
+      { day: '2026-10-03', orders: 0, revenueKobo: 250_000, delivered: 0 },
+    ])
+    expect(d.monthFigures).toEqual(computeDashboard([o], [paid], NOW).monthFigures)
+  })
+
+  it('puts a backwards range in order and stops a future end on today', () => {
+    const d = computeDashboard([], [], NOW, { first: '2026-12-01', last: '2026-10-08' })
+    expect(d.trend.map((t) => t.day)).toEqual(['2026-10-08', '2026-10-09', '2026-10-10'])
+  })
+
+  it('shortens a range longer than a year, ending today', () => {
+    const d = computeDashboard([], [], NOW, { first: '2020-01-01', last: '2026-12-01' })
+    expect(d.trend).toHaveLength(MAX_TREND_DAYS)
+    expect(d.trend[0].day).toBe(addDays('2026-10-10', -(MAX_TREND_DAYS - 1)))
+    expect(d.trend.at(-1)?.day).toBe('2026-10-10')
+  })
+
+  it('keeps the 14-day default when the range is not a calendar day', () => {
+    const d = computeDashboard([], [], NOW, { first: 'nope', last: '2026-10-01' })
+    expect(d.trend).toHaveLength(TREND_DAYS)
+    expect(d.trend[0].day).toBe('2026-09-27')
   })
 
   it('breaks this month’s orders down by payment status (cancelled left out)', () => {

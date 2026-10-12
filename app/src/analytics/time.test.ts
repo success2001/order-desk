@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { addDays, dayOfMonth, daysInMonth, inDays, lagosDay, lagosMonth, previousMonth, startOfLagosDay } from './time'
+import {
+  addDays,
+  dayOfMonth,
+  daysInMonth,
+  inDays,
+  inclusiveDayCount,
+  isDayKey,
+  lagosDay,
+  lagosMonth,
+  previousMonth,
+  startOfLagosDay,
+} from './time'
 
 describe('Lagos calendar days and months', () => {
   it('uses Lagos time (UTC+1), not UTC or the device time zone', () => {
@@ -19,6 +30,14 @@ describe('Lagos calendar days and months', () => {
     expect(addDays('2028-02-28', 1)).toBe('2028-02-29')
     expect(previousMonth('2026-01')).toBe('2025-12')
     expect(previousMonth('2026-10')).toBe('2026-09')
+  })
+
+  it('accepts real calendar days and counts them inclusively', () => {
+    expect(isDayKey('2026-10-10')).toBe(true)
+    expect(isDayKey('2026-02-31')).toBe(false)
+    expect(isDayKey('10 Oct')).toBe(false)
+    expect(inclusiveDayCount('2026-10-10', '2026-10-10')).toBe(1)
+    expect(inclusiveDayCount('2026-09-27', '2026-10-10')).toBe(14)
   })
 
   it('clamps a day number to the month length', () => {

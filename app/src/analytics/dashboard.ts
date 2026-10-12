@@ -1,7 +1,18 @@
 import { paymentStatus } from '../orders/payment'
 import type { FulfilmentStatus, Order, PaymentStatus } from '../orders/types'
 import type { Payment } from '../payments/types'
-import { addDays, dayOfMonth, inDays, lagosDay, lagosMonth, previousMonth, type DayKey, type MonthKey } from './time'
+import {
+  addDays,
+  dayOfMonth,
+  inDays,
+  inclusiveDayCount,
+  isDayKey,
+  lagosDay,
+  lagosMonth,
+  previousMonth,
+  type DayKey,
+  type MonthKey,
+} from './time'
 
 // Dashboard figures, calculated on the device from local data (works offline).
 // Definitions (BUILD_PLAN.md D19):
@@ -13,11 +24,46 @@ import { addDays, dayOfMonth, inDays, lagosDay, lagosMonth, previousMonth, type 
 // - all periods are Lagos calendar days/months
 
 export const TREND_DAYS = 14
+/** Longest daily report, so a custom range can't walk years of empty days. */
+export const MAX_TREND_DAYS = 366
 
 export interface PeriodFigures {
   orders: number
   revenueKobo: number
   delivered: number
+}
+
+export interface TrendRange {
+  first: DayKey
+  last: DayKey
+}
+
+export interface TrendPoint {
+  day: DayKey
+  orders: number
+  revenueKobo: number
+  delivered: number
+}
+
+/** The last TREND_DAYS Lagos days, ending on `today`. */
+export function defaultTrendRange(today: DayKey): TrendRange {
+  return { first: addDays(today, -(TREND_DAYS - 1)), last: today }
+}
+
+/** In order, ending no later than `today`, and no longer than MAX_TREND_DAYS. */
+export function clampTrendRange(range: TrendRange, today: DayKey): TrendRange {
+  let first = range.first
+  let last = range.last
+  if (first > last) [first, last] = [last, first]
+  if (last > today) last = today
+  if (first > last) first = last
+  if (inclusiveDayCount(first, last) > MAX_TREND_DAYS) first = addDays(last, -(MAX_TREND_DAYS - 1))
+  return { first, last }
+}
+
+function resolveTrendRange(today: DayKey, range?: TrendRange): TrendRange {
+  if (!range || !isDayKey(range.first) || !isDayKey(range.last)) return defaultTrendRange(today)
+  return clampTrendRange(range, today)
 }
 
 export interface Dashboard {
@@ -33,8 +79,8 @@ export interface Dashboard {
   awaiting: { pending: number; dispatched: number; total: number }
   /** Still owed on orders that aren't cancelled. */
   outstanding: { kobo: number; orders: number }
-  /** Orders and revenue per Lagos day, oldest first, ending today. */
-  trend: { day: DayKey; orders: number; revenueKobo: number }[]
+  /** Orders, money received and deliveries per Lagos day, oldest first. Defaults to the last 14 days. */
+  trend: TrendPoint[]
   /** Current status of this month's orders (cancelled included in delivery status only). */
   breakdown: {
     fulfilment: Record<FulfilmentStatus, number>
@@ -42,7 +88,12 @@ export interface Dashboard {
   }
 }
 
-export function computeDashboard(allOrders: readonly Order[], allPayments: readonly Payment[], now = new Date()): Dashboard {
+export function computeDashboard(
+  allOrders: readonly Order[],
+  allPayments: readonly Payment[],
+  now = new Date(),
+  range?: TrendRange,
+): Dashboard {
   const today = lagosDay(now)
   const month = lagosMonth(now)
   const firstOfMonth = `${month}-01`
@@ -80,11 +131,12 @@ export function computeDashboard(allOrders: readonly Order[], allPayments: reado
     }
   }
 
-  const trend = Array.from({ length: TREND_DAYS }, (_, i) => {
-    const day = addDays(today, i - (TREND_DAYS - 1))
+  const trendRange = resolveTrendRange(today, range)
+  const trend: TrendPoint[] = []
+  for (let day = trendRange.first; day <= trendRange.last; day = addDays(day, 1)) {
     const f = figures(day, day)
-    return { day, orders: f.orders, revenueKobo: f.revenueKobo }
-  })
+    trend.push({ day, orders: f.orders, revenueKobo: f.revenueKobo, delivered: f.delivered })
+  }
 
   const thisMonthsOrders = orders.filter((o) => inDays(o.created_at, firstOfMonth, today))
   const fulfilment: Record<FulfilmentStatus, number> = { pending: 0, dispatched: 0, delivered: 0, cancelled: 0 }

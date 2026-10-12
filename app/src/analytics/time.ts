@@ -32,6 +32,25 @@ export function addDays(day: DayKey, n: number): DayKey {
   return new Date(Date.parse(`${day}T00:00:00.000Z`) + n * DAY_MS).toISOString().slice(0, 10)
 }
 
+const DAY_KEY = /^(\d{4})-(\d{2})-(\d{2})$/
+
+/** True for a real calendar day written as "YYYY-MM-DD" (rejects 2026-02-31 and other text). */
+export function isDayKey(value: string): value is DayKey {
+  const match = DAY_KEY.exec(value)
+  if (!match) return false
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  const date = new Date(Date.UTC(year, month - 1, day))
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+}
+
+/** How many Lagos days `first` through `last` cover, inclusive. Negative when `first` is after `last`. */
+export function inclusiveDayCount(first: DayKey, last: DayKey): number {
+  const span = Date.parse(`${last}T00:00:00.000Z`) - Date.parse(`${first}T00:00:00.000Z`)
+  return Math.round(span / DAY_MS) + 1
+}
+
 /** The month before `month`. */
 export function previousMonth(month: MonthKey): MonthKey {
   const [y, m] = month.split('-').map(Number)
