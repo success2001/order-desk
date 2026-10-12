@@ -463,6 +463,50 @@ p {
   color: var(--muted);
 }
 
+.how-to {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.how-to__steps {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+}
+
+.how-to__steps li {
+  position: relative;
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.85rem 0.85rem 0.85rem 3.1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  counter-increment: step;
+}
+
+.how-to__steps li::before {
+  content: counter(step);
+  position: absolute;
+  top: 0.85rem;
+  left: 0.75rem;
+  display: grid;
+  place-items: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 50%;
+  background: var(--green-bg);
+  color: var(--green-fg);
+  font-weight: 700;
+}
+
+.how-to .button {
+  width: 100%;
+}
+
 .error {
   margin-top: 1rem;
   color: var(--danger);

@@ -1,4 +1,4 @@
-import { resetRoute } from '../app/router'
+import { navigate, resetRoute } from '../app/router'
 import { useAuth } from '../auth/useAuth'
 import { formatOrderDate } from '../orders/labels'
 import { useSync } from '../sync/useSync'
@@ -30,6 +30,9 @@ export function AccountPage() {
         <p>{lastSyncedAt ? formatOrderDate(lastSyncedAt) : 'Not yet on this visit'}</p>
       </section>
       <div className="actions">
+        <button type="button" className="button" onClick={() => navigate('/how-to')}>
+          How to use
+        </button>
         <button type="button" className="button button--danger" onClick={handleSignOut}>
           Sign out
         </button>

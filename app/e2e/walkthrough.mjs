@@ -48,6 +48,7 @@ const rememberVendor = (account, session = null) =>
   )
 const OTHER_VENDOR = { id: '22222222-2222-4222-8222-222222222222', email: 'vendor-b@example.com' }
 const listReady = () => page.getByText('No open orders.').waitFor({ timeout: 15_000 })
+const howToReady = () => page.getByRole('heading', { name: 'How to use', level: 1 }).waitFor({ timeout: 15_000 })
 
 try {
   // Sign-in screen when nobody is signed in.
@@ -90,12 +91,12 @@ try {
   // Signed-in vendor with a real session.
   await rememberVendor(vendor.account, vendor.session)
   await page.reload()
-  await listReady()
+  await howToReady()
   if (prod) {
     await page.evaluate(() => navigator.serviceWorker.ready)
     if (!(await page.evaluate(() => !!navigator.serviceWorker.controller))) {
       await page.reload()
-      await listReady()
+      await howToReady()
     }
     check('service worker controls page', await page.evaluate(() => !!navigator.serviceWorker.controller))
   }
@@ -109,6 +110,9 @@ try {
   check('current database uses "orderdesk-" name', dbNames?.includes(`orderdesk-${vendor.account.id}`))
   check('unsent order in old database never uploaded', !(await vendor.serverOrder('Legacy Order')))
   check('old order not shown in the app', (await page.getByText('Legacy Order').count()) === 0)
+  check('how to use explains saving to the home screen', await visible(page.getByText('Save it on your home screen')))
+  await page.getByRole('button', { name: 'Got it' }).click()
+  await listReady()
   await shot('01-empty-list')
 
   // Validation.
@@ -365,6 +369,7 @@ try {
 
   await rememberVendor(OTHER_VENDOR)
   await page.reload()
+  await page.getByRole('button', { name: 'Got it' }).click()
   await page.getByLabel('Show delivered and cancelled').check()
   check('other vendor sees none of these orders', await visible(page.getByText('No orders yet.')))
   check('no server session: banner asks to sign in again', await visible(page.getByText('Sign in again to keep backing up.'), 10_000))

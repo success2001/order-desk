@@ -1,10 +1,12 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { goBack, navigate, useRoute, type Route } from './app/router'
 import { auth, SUPABASE_KEY, SUPABASE_URL } from './auth/client'
+import { hasSeenHowTo, markHowToSeen } from './auth/howTo'
 import { useAuth } from './auth/useAuth'
 import { AccountPage } from './components/AccountPage'
 import { DashboardPage } from './components/DashboardPage'
+import { HowTo } from './components/HowTo'
 import { OrderDetail } from './components/OrderDetail'
 import { OrderForm } from './components/OrderForm'
 import { OrdersList } from './components/OrdersList'
@@ -23,6 +25,7 @@ const TITLES: Record<Route['name'], string> = {
   new: 'New order',
   account: 'Account',
   dashboard: 'Dashboard',
+  'how-to': 'How to use',
   detail: 'Order',
   edit: 'Edit order',
 }
@@ -63,6 +66,14 @@ function SyncedOrdersApp({ vendorId }: { vendorId: string }) {
 
 function OrdersApp() {
   const route = useRoute()
+  const { account } = useAuth()
+  const [introDone, setIntroDone] = useState(() => (account ? hasSeenHowTo(account.id) : true))
+  const showingIntro = route.name === 'list' && !introDone
+
+  function finishIntro() {
+    if (account) markHowToSeen(account.id)
+    setIntroDone(true)
+  }
 
   return (
     <div className="app">
@@ -72,8 +83,8 @@ function OrdersApp() {
             ←
           </button>
         )}
-        <h1>{TITLES[route.name]}</h1>
-        {route.name === 'list' && (
+        <h1>{showingIntro ? 'How to use' : TITLES[route.name]}</h1>
+        {route.name === 'list' && !showingIntro && (
           <nav className="topbar__actions" aria-label="Main">
             <button type="button" className="topbar__action" onClick={() => navigate('/dashboard')}>
               Dashboard
@@ -87,10 +98,19 @@ function OrdersApp() {
       <SyncIndicator />
 
       <main className="content">
-        {route.name === 'list' && <OrdersList />}
+        {showingIntro && <HowTo onDone={finishIntro} />}
+        {route.name === 'list' && !showingIntro && <OrdersList />}
         {route.name === 'new' && <OrderForm />}
         {route.name === 'account' && <AccountPage />}
         {route.name === 'dashboard' && <DashboardPage />}
+        {route.name === 'how-to' && (
+          <HowTo
+            onDone={() => {
+              finishIntro()
+              goBack()
+            }}
+          />
+        )}
         {(route.name === 'detail' || route.name === 'edit') && <OrderPage id={route.id} edit={route.name === 'edit'} />}
       </main>
     </div>

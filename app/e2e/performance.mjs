@@ -49,7 +49,10 @@ const median = (xs) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)]
 
 try {
   // Signed-in vendor, so the app opens straight to the list.
-  await context.addInitScript((v) => localStorage.setItem('account', JSON.stringify(v)), VENDOR)
+  await context.addInitScript((v) => {
+    localStorage.setItem('account', JSON.stringify(v))
+    localStorage.setItem(`how-to-seen:${v.id}`, '1')
+  }, VENDOR)
 
   // Unthrottled set-up: create the database and store 300 orders.
   await page.goto(site.url)
@@ -109,7 +112,10 @@ try {
 
   // First visit: fresh browser context, nothing cached.
   const fresh = await browser.newContext({ viewport: { width: 393, height: 852 }, isMobile: true, hasTouch: true })
-  await fresh.addInitScript((v) => localStorage.setItem('account', JSON.stringify(v)), VENDOR)
+  await fresh.addInitScript((v) => {
+    localStorage.setItem('account', JSON.stringify(v))
+    localStorage.setItem(`how-to-seen:${v.id}`, '1')
+  }, VENDOR)
   const freshPage = await fresh.newPage()
   const freshCdp = await fresh.newCDPSession(freshPage)
   await freshCdp.send('Network.enable')

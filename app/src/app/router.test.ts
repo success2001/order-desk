@@ -11,6 +11,7 @@ describe('parseRoute', () => {
     ['#/new', { name: 'new' }],
     ['#/account', { name: 'account' }],
     ['#/dashboard', { name: 'dashboard' }],
+    ['#/how-to', { name: 'how-to' }],
     [`#/orders/${id}`, { name: 'detail', id }],
     [`#/orders/${id}/edit`, { name: 'edit', id }],
   ])('parses %j', (hash, expected) => {

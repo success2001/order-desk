@@ -8,6 +8,7 @@ export type Route =
   | { name: 'new' }
   | { name: 'account' }
   | { name: 'dashboard' }
+  | { name: 'how-to' }
   | { name: 'detail'; id: string }
   | { name: 'edit'; id: string }
 
@@ -16,6 +17,7 @@ export function parseRoute(hash: string): Route {
   if (path === '/new') return { name: 'new' }
   if (path === '/account') return { name: 'account' }
   if (path === '/dashboard') return { name: 'dashboard' }
+  if (path === '/how-to') return { name: 'how-to' }
   const match = path.match(/^\/orders\/([0-9a-f-]{36})(\/edit)?$/i)
   if (match) return match[2] ? { name: 'edit', id: match[1] } : { name: 'detail', id: match[1] }
   return { name: 'list' }
