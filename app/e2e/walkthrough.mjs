@@ -193,7 +193,7 @@ try {
     d.setDate(d.getDate() - 3)
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
   })
-  await page.getByRole('button', { name: 'Record payment' }).click()
+  await page.getByRole('button', { name: 'Add additional payment' }).click()
   await page.getByLabel('Amount received in naira').fill('2,000')
   await page.getByLabel('Date received').fill(threeDaysAgo)
   await page.getByLabel('Method (optional)').selectOption('cash')

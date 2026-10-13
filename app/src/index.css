@@ -1,6 +1,6 @@
 :root {
   --text: #1f2421;
-  --muted: #5b6560;
+  --muted: #A9A9A9;
   --bg: #f4f6f5;
   --surface: #ffffff;
   --border: #dde3e0;
@@ -757,6 +757,13 @@ p {
 
 .field textarea {
   resize: vertical;
+}
+
+.field input::placeholder,
+.field textarea::placeholder,
+.inline-form input::placeholder {
+  color: var(--muted);
+  font-weight: 400;
 }
 
 .field input:focus,

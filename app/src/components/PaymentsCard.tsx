@@ -107,7 +107,7 @@ export function PaymentsCard({ order }: { order: Order }) {
               setDraft(newDraft())
             }}
           >
-            Record payment
+            {payments.length > 0 ? 'Add additional payment' : 'Record payment'}
           </button>
         </div>
       ) : (

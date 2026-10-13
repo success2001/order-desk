@@ -123,7 +123,7 @@ export function OrderForm({ order }: { order?: Order }) {
           value={amountDue}
           onChange={(e) => setAmountDue(e.target.value)}
           inputMode="decimal"
-          placeholder="25,000"
+          placeholder="e.g. 25,000"
           autoComplete="off"
         />
       </Field>
